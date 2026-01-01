@@ -23,11 +23,8 @@ class Settings(BaseSettings):
     SUPABASE_ANON_KEY: str
     SUPABASE_SERVICE_KEY: str
     
-    # AWS (OCR)
-    AWS_ACCESS_KEY_ID: str
-    AWS_SECRET_ACCESS_KEY: str
-    AWS_REGION: str = "us-east-1"
-    AWS_S3_BUCKET_OCR: str = "medicase-ocr-temp"
+    # Google Cloud (OCR)
+    GOOGLE_CLOUD_PROJECT: str = ""
     
     # AI Services
     ANTHROPIC_API_KEY: str = ""
