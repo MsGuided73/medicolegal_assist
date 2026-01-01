@@ -2,6 +2,7 @@
 API v1 Router
 """
 from fastapi import APIRouter
+from app.api.v1 import document_intelligence
 
 api_router = APIRouter()
 
@@ -15,6 +16,10 @@ async def api_root():
             "/auth",
             "/cases",
             "/documents",
-            "/reports"
+            "/reports",
+            "/document-intelligence"
         ]
     }
+
+# Include routers
+api_router.include_router(document_intelligence.router)
