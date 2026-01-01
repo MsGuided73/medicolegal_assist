@@ -1,0 +1,13 @@
+-r requirements.txt
+
+# Development Tools
+ipython==8.17.2
+ipdb==0.13.13
+
+# Testing
+pytest-watch==4.2.0
+faker==20.1.0
+factory-boy==3.3.0
+
+# Type Checking
+types-redis==4.6.0.11
