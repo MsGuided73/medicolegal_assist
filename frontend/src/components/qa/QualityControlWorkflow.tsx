@@ -46,7 +46,7 @@ interface QAWorkflowProps {
 }
 
 export const QualityControlWorkflow: React.FC<QAWorkflowProps> = ({
-  caseId,
+  caseId: _caseId,
   qaStatus,
   onAdvanceStage,
   onRejectCase

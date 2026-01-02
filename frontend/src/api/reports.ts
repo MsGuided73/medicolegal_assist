@@ -10,7 +10,7 @@ export const reportsApi = {
   get: (report_id: string) => apiClient.get<Report>(`/reports/${report_id}`),
 
   // List reports
-  list: (params: any = {}) => apiClient.get<Report[]>('/reports'),
+  list: (_params: any = {}) => apiClient.get<Report[]>('/reports'),
 
   // Create report
   create: (data: { case_id: string; report_type: string }) =>

@@ -5,7 +5,6 @@ import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
 import { getMovementsForJoint, ROM_NORMALS } from "@/lib/anatomyData"
 import { ROMMeasurement } from "@/types/examination"
-import { Plus, Trash2 } from "lucide-react"
 
 interface ROMSectionProps {
   selectedRegions: string[]
@@ -20,7 +19,7 @@ export function ROMSection({
   measurements,
   onAddMeasurement,
   onUpdateMeasurement,
-  onRemoveMeasurement,
+  onRemoveMeasurement: _onRemoveMeasurement,
 }: ROMSectionProps) {
   const [selectedRegion, setSelectedRegion] = useState(selectedRegions[0] || "")
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { useParams, useNavigate, useSearchParams } from "react-router-dom"
+import { useNavigate, useSearchParams } from "react-router-dom"
 import { 
   useExamination, 
   useUpdateExamination, 
@@ -14,10 +14,10 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { AnatomySelector } from "@/components/examination/AnatomySelector"
 import { ROMSection } from "@/components/examination/ROMSection"
 import { StrengthSection } from "@/components/examination/StrengthSection"
-import { ChevronLeft, Save, CheckCircle, AlertCircle } from "lucide-react"
+import { ChevronLeft, Save, CheckCircle } from "lucide-react"
 import { toast } from "react-hot-toast"
 
-export default function PhysicalExamPage() {
+export default function ExaminationFormPage() {
   const [searchParams] = useSearchParams()
   const caseId = searchParams.get("caseId")
   const navigate = useNavigate()
@@ -134,8 +134,8 @@ export default function PhysicalExamPage() {
                         selectedRegions={selectedRegions}
                         measurements={exam?.rom_measurements || []}
                         onAddMeasurement={(m) => addROM(m)}
-                        onUpdateMeasurement={(id, m) => { /* Update existing logic */ }}
-                        onRemoveMeasurement={(id) => { /* Remove logic */ }}
+                        onUpdateMeasurement={(_id, _m) => { /* Update existing logic */ }}
+                        onRemoveMeasurement={(_id) => { /* Remove logic */ }}
                     />
                     <div className="mt-8 flex justify-between">
                         <Button variant="outline" onClick={() => setActiveTab("anatomy")}>Back</Button>
@@ -156,7 +156,7 @@ export default function PhysicalExamPage() {
                         selectedRegions={selectedRegions}
                         strengthTests={exam?.strength_tests || []}
                         onAddTest={(t) => addStrength(t)}
-                        onUpdateTest={(id, t) => { /* Update logic */ }}
+                        onUpdateTest={(_id, _t) => { /* Update logic */ }}
                     />
                     <div className="mt-8 flex justify-between">
                         <Button variant="outline" onClick={() => setActiveTab("rom")}>Back</Button>

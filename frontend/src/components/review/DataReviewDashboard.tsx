@@ -23,7 +23,7 @@ export interface BulkUpdateRequest {
 }
 
 export const DataReviewDashboard: React.FC<DataReviewDashboardProps> = ({
-  caseId,
+  caseId: _caseId,
   entities,
   clinicalDates,
   onBulkUpdate,
@@ -170,7 +170,7 @@ export const DataReviewDashboard: React.FC<DataReviewDashboardProps> = ({
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Confidence</SelectItem>
-            <SelectItem value="low">Low (<70%)</SelectItem>
+            <SelectItem value="low">Low {'<'}70%</SelectItem>
             <SelectItem value="high">High (≥90%)</SelectItem>
           </SelectContent>
         </Select>

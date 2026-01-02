@@ -1,17 +1,12 @@
 import { useState } from "react"
-import { useQuery } from "@tanstack/react-query"
-import { reportsApi } from "@/api/reports"
-import { useCases } from "@/hooks/useCases"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Plus, FileText, Search, Filter, Download, Edit2 } from "lucide-react"
-import { Link, useNavigate } from "react-router-dom"
+import { Plus, Search, Filter, Download, Edit2 } from "lucide-react"
+import { Link } from "react-router-dom"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { format } from "date-fns"
 
 export default function ReportsPage() {
-  const navigate = useNavigate()
   const [search, setSearch] = useState("")
   
   // No list reports API yet in reports.ts, I'll use cases list and then fetch reports for each?

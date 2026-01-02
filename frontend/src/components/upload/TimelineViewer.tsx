@@ -32,7 +32,7 @@ export function TimelineViewer({ timeline }: TimelineViewerProps) {
 
   return (
     <div className="relative space-y-4 before:absolute before:inset-0 before:ml-5 before:-translate-x-px before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-slate-300 before:to-transparent">
-      {sortedEvents.map((event, index) => (
+      {sortedEvents.map((event, _index) => (
         <div key={event.id} className="relative flex items-start gap-4">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border bg-background shadow-sm z-10">
             {getEventIcon(event.event_type)}

@@ -4,7 +4,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import { AlertTriangle, Check, X, Edit, Save, Undo } from 'lucide-react'
+import { AlertTriangle, X, Edit, Save, Undo } from 'lucide-react'
 import { MedicalEntity } from '@/types/entity'
 
 interface EditableEntityProps {

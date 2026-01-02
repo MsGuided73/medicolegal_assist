@@ -39,7 +39,7 @@ export function useAddROM(examId: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (data: Partial<ROMMeasurement>) => examinationsApi.addROM(examId, data),
-    onSuccess: (result) => {
+    onSuccess: (_result) => {
       // Invalidate to refresh the full exam data
       queryClient.invalidateQueries({ queryKey: ["examination"] })
     }

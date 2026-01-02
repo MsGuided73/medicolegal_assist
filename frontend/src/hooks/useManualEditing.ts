@@ -17,7 +17,7 @@ export const useManualEditing = (caseId: string) => {
     mutationFn: async ({ 
       entityId, 
       updates, 
-      editReason 
+      editReason: _editReason 
     }: { 
       entityId: string
       updates: Partial<MedicalEntity>
@@ -42,7 +42,7 @@ export const useManualEditing = (caseId: string) => {
     mutationFn: async ({ 
       dateId, 
       updates, 
-      editReason 
+      editReason: _editReason 
     }: { 
       dateId: string
       updates: Partial<ClinicalDate>

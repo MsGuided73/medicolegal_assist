@@ -31,7 +31,7 @@ interface EditHistoryProps {
 }
 
 export const EditHistoryComponent: React.FC<EditHistoryProps> = ({
-  caseId,
+  caseId: _caseId,
   auditLog,
   onRevertEdit
 }) => {

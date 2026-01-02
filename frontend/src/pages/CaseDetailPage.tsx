@@ -15,12 +15,9 @@ import {
   History, 
   Activity, 
   ClipboardCheck,
-  Settings,
-  MoreVertical,
   Plus,
   Upload,
   BrainCircuit,
-  FileSearch
 } from "lucide-react"
 import { format } from "date-fns"
 import { toast } from "react-hot-toast"

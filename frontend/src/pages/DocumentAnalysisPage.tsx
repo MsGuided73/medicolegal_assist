@@ -1,5 +1,4 @@
-import { useState } from "react"
-import { useParams, Link, useNavigate, useLocation } from "react-router-dom"
+import { useParams, useNavigate, useLocation } from "react-router-dom"
 import { useCase } from "@/hooks/useCases"
 import { useCaseTimeline } from "@/hooks/useTimeline"
 import { Button } from "@/components/ui/button"
@@ -12,9 +11,6 @@ import {
   Stethoscope, 
   Pill, 
   Activity, 
-  ClipboardCheck, 
-  FileText,
-  BadgeAlert
 } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 
