@@ -1,13 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { documentsApi } from "@/api/documents"
 import { apiClient } from "@/api/client"
-import { UploadedDocument } from "@/types/document"
 import { toast } from "react-hot-toast"
 
 export function useDocuments(caseId: string) {
   return useQuery({
     queryKey: ["documents", caseId],
-    queryFn: () => documentsApi.list(caseId),
+    queryFn: async () => {
+      const res = await documentsApi.list(caseId)
+      // normalize: old API returned array, new returns {documents: []}
+      return (res as any).documents ?? res
+    },
     enabled: !!caseId,
   })
 }

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { CaseStatusBadge } from "@/components/cases/CaseStatusBadge"
 import { CasePriorityBadge } from "@/components/cases/CasePriorityBadge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import DocumentList from "@/components/DocumentList"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { TimelineViewer } from "@/components/upload/TimelineViewer"
@@ -182,7 +183,7 @@ export default function CaseDetailPage() {
               <CardTitle>Document Management</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-muted-foreground">Document upload and analysis view placeholder.</p>
+              <DocumentList caseId={id!} />
               <Button className="mt-4" asChild>
                 <Link to="/upload">Upload New Document</Link>
               </Button>

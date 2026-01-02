@@ -110,8 +110,10 @@ export default function UploadPage() {
               {!caseId && !isCreatingCase ? (
                 <div className="grid grid-cols-1 gap-4">
                     <div className="space-y-2">
-                        <Label>Select Existing Case</Label>
+                        <Label htmlFor="case-select">Select Existing Case</Label>
                         <select 
+                            id="case-select"
+                            name="caseId"
                             className="w-full p-2 border rounded-md"
                             onChange={(e) => setCaseId(e.target.value)}
                             value={caseId || ""}
@@ -134,16 +136,18 @@ export default function UploadPage() {
               ) : isCreatingCase ? (
                 <div className="space-y-4">
                     <div className="space-y-2">
-                        <Label>Patient Full Name</Label>
+                        <Label htmlFor="patient-full-name">Patient Full Name</Label>
                         <Input 
+                            id="patient-full-name"
+                            name="patientFullName"
                             placeholder="e.g. John Doe" 
                             value={patientName}
                             onChange={(e) => setPatientName(e.target.value)}
                         />
                     </div>
                     <div className="flex gap-2">
-                        <Button variant="ghost" onClick={() => setIsCreatingCase(false)}>Cancel</Button>
-                        <Button variant="secondary" onClick={() => setCaseId(null)}>Select Existing Instead</Button>
+                    <Button variant="ghost" onClick={() => setIsCreatingCase(false)}>Cancel</Button>
+                    <Button variant="secondary" onClick={() => { setIsCreatingCase(false); setCaseId(null); }}>Select Existing Instead</Button>
                     </div>
                 </div>
               ) : (

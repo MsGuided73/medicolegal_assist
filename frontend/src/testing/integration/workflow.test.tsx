@@ -1,5 +1,9 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+// Integration tests use happy-dom via vitest.integration.config.ts.
+// We also annotate explicitly to prevent accidental execution in a node env.
+// @vitest-environment happy-dom
+
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen } from '@testing-library/react'
 import '@testing-library/jest-dom/vitest' 
 import userEvent from '@testing-library/user-event'
 import CaseDetailPage from '../../pages/CaseDetailPage'

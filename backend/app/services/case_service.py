@@ -43,9 +43,17 @@ class CaseService:
                 "patient_name": f"{case_data.patient_first_name} {case_data.patient_last_name}".strip(),
                 "injury_date": case_data.injury_date.isoformat() if case_data.injury_date else None,
                 "status": CaseStatus.OPEN.value,
-                "assigned_physician_id": str(created_by_id) # Direct assignment for compatibility
+                # Don't set assigned_physician_id unless we know the user has a profile row.
+                # Supabase schema enforces FK cases.assigned_physician_id -> profiles.id.
+                # We'll set it below only when _get_profile() returns a row.
+                "assigned_physician_id": None
             }
             
+            # If the creator has a profile row, we can safely set assigned_physician_id
+            user = await self._get_profile(created_by_id)
+            if user:
+                case_dict["assigned_physician_id"] = str(created_by_id)
+
             # Insert case into database
             result = self.supabase.table("cases").insert(case_dict).execute()
             
@@ -56,7 +64,6 @@ class CaseService:
             case_id = UUID(case["id"])
             
             # Auto-assign to creator if they're a physician
-            user = await self._get_profile(created_by_id)
             if user and user.get("role") == "physician":
                 await self.assign_case(
                     case_id=case_id,
@@ -66,23 +73,36 @@ class CaseService:
                 )
                 case["assigned_physician_id"] = str(created_by_id)
             
-            # Log initial status
-            await self._log_status_change(
-                case_id=case_id,
-                from_status=None,
-                to_status=CaseStatus.OPEN.value,
-                changed_by=created_by_id,
-                notes="Case created"
-            )
+            # Log initial status.
+            # NOTE: Some Supabase schemas enforce FK case_status_history.changed_by -> profiles.id.
+            # In dev environments where the authenticated user exists in auth.users but not in profiles,
+            # this insert will fail with a 23503 FK violation.
+            try:
+                await self._log_status_change(
+                    case_id=case_id,
+                    from_status=None,
+                    to_status=CaseStatus.OPEN.value,
+                    changed_by=created_by_id,
+                    notes="Case created"
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Skipping status history insert due to schema/profile mismatch: {str(e)}"
+                )
             
-            # Create audit log
-            await self._create_audit_log(
-                user_id=created_by_id,
-                action="case_created",
-                resource_type="case",
-                resource_id=case_id,
-                details={"case_number": case_number}
-            )
+            # Create audit log (same FK caveat as above)
+            try:
+                await self._create_audit_log(
+                    user_id=created_by_id,
+                    action="case_created",
+                    resource_type="case",
+                    resource_id=case_id,
+                    details={"case_number": case_number}
+                )
+            except Exception as e:
+                logger.warning(
+                    f"Skipping audit log insert due to schema/profile mismatch: {str(e)}"
+                )
             
             logger.info(f"Case created: {case_number} by user {created_by_id}")
             

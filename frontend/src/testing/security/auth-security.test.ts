@@ -6,7 +6,7 @@ describe('Authentication & Authorization Security', () => {
     const response = await fetch('http://localhost:8000/api/v1/cases', {
       method: 'GET',
       headers: { 'Authorization': 'Bearer invalid-token' }
-    }).catch(e => ({ status: 401 }))
+    }).catch(() => ({ status: 401 }))
     
     expect(response.status).toBe(401)
   })
