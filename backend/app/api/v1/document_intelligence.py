@@ -5,12 +5,13 @@ Unified Gemini 2.0 Document Intelligence API Endpoints
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from fastapi.responses import JSONResponse
 from typing import Optional
+from uuid import UUID
 import tempfile
 import os
 import logging
 from dataclasses import asdict
 
-from app.services.gemini_intelligence import GeminiDocumentIntelligence
+from app.services.document_intelligence import MedicalDocumentIntelligence
 from app.config import settings
 from app.core.database import get_supabase
 
@@ -19,27 +20,33 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/document-intelligence", tags=["Document Intelligence"])
 
 
-# Initialize Gemini Service
-_gemini_service = None
+# Initialize Document Intelligence Service
+_doc_intelligence_service = None
 
-def get_gemini_service() -> GeminiDocumentIntelligence:
-    """Get Gemini document intelligence service instance"""
-    global _gemini_service
+def get_doc_intelligence_service() -> MedicalDocumentIntelligence:
+    """Get document intelligence service instance"""
+    global _doc_intelligence_service
     
-    if _gemini_service is None:
-        # Note: Using GOOGLE_AI_STUDIO_API_KEY from settings
-        _gemini_service = GeminiDocumentIntelligence(
-            api_key=os.getenv('GOOGLE_AI_STUDIO_API_KEY', settings.OPENAI_API_KEY) # Fallback to settings
+    if _doc_intelligence_service is None:
+        # Note: Using GOOGLE_AI_STUDIO_API_KEY from settings/env
+        api_key = os.getenv('GOOGLE_AI_STUDIO_API_KEY')
+        if not api_key:
+            raise RuntimeError("GOOGLE_AI_STUDIO_API_KEY not found in environment")
+            
+        _doc_intelligence_service = MedicalDocumentIntelligence(
+            api_key=api_key
         )
     
-    return _gemini_service
+    return _doc_intelligence_service
 
 
 @router.post("/analyze", response_model=dict)
 async def analyze_document(
+    case_id: UUID,
+    document_id: UUID,
     file: UploadFile = File(...),
     high_capacity: bool = True,
-    service: GeminiDocumentIntelligence = Depends(get_gemini_service)
+    service: MedicalDocumentIntelligence = Depends(get_doc_intelligence_service)
 ):
     """
     Analyze medical document using Gemini 2.0 Series
@@ -59,10 +66,14 @@ async def analyze_document(
         tmp_file_path = tmp_file.name
     
     try:
-        logger.info(f"Processing document {file.filename} (High Capacity: {high_capacity})")
+        logger.info(f"Processing document {file.filename} (High Capacity: {high_capacity}, Case: {case_id})")
         
-        # Analyze using Gemini 2.0 Pipeline
-        result = await service.analyze_large_document(tmp_file_path)
+        # Analyze using Gemini 2.0 Pipeline (already High-Capacity by default in the service)
+        result = await service.analyze_document(
+            pdf_path=tmp_file_path,
+            case_id=case_id,
+            document_id=document_id
+        )
         
         return JSONResponse(content=asdict(result))
         

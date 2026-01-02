@@ -1,17 +1,23 @@
 """
 Medical Document Intelligence Service
-Alternative to Azure AI Document Intelligence using Google Vision + Claude
+Unified Gemini 2.0 Series pipeline for high-capacity medical record analysis
 """
 
-from google.cloud import vision
-from anthropic import Anthropic
-import io
+import os
+import asyncio
 import json
+import io
+import logging
 from typing import Dict, List, Any, Optional
 from dataclasses import dataclass, asdict
 from datetime import datetime
-from pdf2image import convert_from_path
-import logging
+from uuid import UUID
+
+from google import genai
+from google.genai import types
+from PyPDF2 import PdfReader, PdfWriter
+from supabase import Client
+from app.core.database import get_supabase_admin
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +38,7 @@ class TableCell:
     row: int
     column: int
     confidence: float
-    bounding_box: BoundingBox
+    bounding_box: Optional[BoundingBox] = None
 
 
 @dataclass
@@ -78,7 +84,7 @@ class ClinicalDate:
 
 
 @dataclass
-class DocumentIntelligenceResult:
+class MedicalDocumentIntelligenceResult:
     """Complete document intelligence output"""
     document_type: str  # e.g., "progress_note", "operative_report", etc.
     ocr_text: str
@@ -90,486 +96,201 @@ class DocumentIntelligenceResult:
     page_count: int
     processing_time: float
     quality_score: float
+    inconsistencies: Optional[List[Dict[str, Any]]] = None
 
 
 class MedicalDocumentIntelligence:
     """
-    Medical Document Intelligence Service
-    Combines Google Vision OCR with Claude medical NLP
+    Advanced Medical Document Intelligence Service
+    Uses Gemini 2.0 Pro & Flash for state-of-the-art multimodal extraction
     """
     
     def __init__(
         self, 
-        anthropic_api_key: str,
-        google_credentials_path: Optional[str] = None
+        api_key: str
     ):
-        """
-        Initialize service
-        
-        Args:
-            anthropic_api_key: Claude API key
-            google_credentials_path: Path to Google Cloud credentials JSON
-        """
-        # Google Vision client will use GOOGLE_APPLICATION_CREDENTIALS env var
-        self.vision_client = vision.ImageAnnotatorClient()
-        self.claude_client = Anthropic(api_key=anthropic_api_key)
+        """Initialize service with Google AI Studio API Key"""
+        self.client = genai.Client(api_key=api_key)
+        self.flash_model = "gemini-2.0-flash"
+        self.pro_model = "gemini-2.0-pro-exp-02-05"
+        self.chunk_size = 50 # Pages per parallel chunk
+        self.supabase: Client = get_supabase_admin()
         
     
     async def analyze_document(
         self, 
         pdf_path: str,
+        case_id: UUID,
+        document_id: UUID,
         document_type_hint: Optional[str] = None
-    ) -> DocumentIntelligenceResult:
+    ) -> MedicalDocumentIntelligenceResult:
         """
-        Analyze medical document end-to-end
+        Analyze medical document end-to-end using Gemini 2.0
         
         Args:
             pdf_path: Path to PDF file
+            case_id: Case ID context
+            document_id: Document ID for persistence
             document_type_hint: Optional hint about document type
             
         Returns:
             Complete document intelligence result
         """
         start_time = datetime.now()
+        logger.info(f"Starting Gemini 2.0 analysis: {pdf_path}")
         
-        logger.info(f"Starting document intelligence analysis: {pdf_path}")
+        # 1. Segment PDF for large files
+        chunks = self._segment_pdf(pdf_path)
+        logger.info(f"Split document into {len(chunks)} chunks")
         
-        # Step 1: Google Vision OCR + Layout
-        logger.info("Step 1: OCR and layout detection with Google Vision")
-        ocr_result = await self._process_with_vision(pdf_path)
+        # 2. Parallel Extraction with Flash (Multimodal)
+        tasks = [self._process_chunk_with_flash(chunk, i) for i, chunk in enumerate(chunks)]
+        chunk_results = await asyncio.gather(*tasks)
         
-        # Step 2: Classify document type
-        logger.info("Step 2: Document classification with Claude")
-        doc_type = await self._classify_document(
-            ocr_result['text'],
+        # 3. Holistic Synthesis with Pro
+        final_data = await self._synthesize_results_with_pro(
+            chunk_results, 
             document_type_hint
-        )
-        
-        # Step 3: Extract sections
-        logger.info("Step 3: Section extraction")
-        sections = await self._extract_sections(
-            ocr_result['text'],
-            doc_type
-        )
-        
-        # Step 4: Extract medical entities
-        logger.info("Step 4: Medical entity extraction with Claude")
-        entities = await self._extract_medical_entities(
-            ocr_result['text'],
-            doc_type
-        )
-        
-        # Step 5: Extract clinical dates
-        logger.info("Step 5: Clinical date extraction")
-        dates = await self._extract_clinical_dates(
-            ocr_result['text']
-        )
-        
-        # Step 6: Calculate quality score
-        quality_score = self._calculate_quality_score(
-            ocr_result['confidence'],
-            len(entities),
-            len(dates),
-            len(sections)
         )
         
         processing_time = (datetime.now() - start_time).total_seconds()
         
-        result = DocumentIntelligenceResult(
-            document_type=doc_type,
-            ocr_text=ocr_result['text'],
-            ocr_confidence=ocr_result['confidence'],
-            sections=sections,
-            tables=ocr_result['tables'],
-            medical_entities=entities,
-            clinical_dates=dates,
-            page_count=ocr_result['page_count'],
+        # Build Result Object
+        result = MedicalDocumentIntelligenceResult(
+            document_type=final_data.get("document_type", "Comprehensive Medical Record"),
+            ocr_text="Content extracted via multimodal analysis (refer to sections)",
+            ocr_confidence=final_data.get("quality_score", 0.9),
+            sections=[DocumentSection(**s) for s in final_data.get("sections", [])],
+            tables=[Table(**t) for t in final_data.get("tables", [])],
+            medical_entities=[MedicalEntity(**e) for e in final_data.get("medical_entities", [])],
+            clinical_dates=[ClinicalDate(**d) for d in final_data.get("clinical_dates", [])],
+            page_count=len(chunks) * self.chunk_size, # Estimates
             processing_time=processing_time,
-            quality_score=quality_score
+            quality_score=final_data.get("quality_score", 0.9),
+            inconsistencies=final_data.get("inconsistencies", [])
         )
         
+        # 4. Auto-Persist findings
+        await self._persist_results(case_id, document_id, result)
+            
         logger.info(f"Analysis complete in {processing_time:.2f}s")
-        
         return result
-    
-    
-    async def _process_with_vision(self, pdf_path: str) -> Dict[str, Any]:
+
+
+    def _segment_pdf(self, pdf_path: str) -> List[bytes]:
+        """Splits PDF into binary chunks of 50 pages each"""
+        reader = PdfReader(pdf_path)
+        total_pages = len(reader.pages)
+        chunks = []
+        
+        for i in range(0, total_pages, self.chunk_size):
+            writer = PdfWriter()
+            end_page = min(i + self.chunk_size, total_pages)
+            for page_num in range(i, end_page):
+                writer.add_page(reader.pages[page_num])
+            
+            chunk_buffer = io.BytesIO()
+            writer.write(chunk_buffer)
+            chunks.append(chunk_buffer.getvalue())
+        return chunks
+
+
+    async def _process_chunk_with_flash(self, chunk_data: bytes, index: int) -> Dict[str, Any]:
+        """Native multimodal extraction for a chunk using Gemini 2.0 Flash"""
+        prompt = """
+        ACT AS: Medical Records Specialist.
+        TASK: Analyze this medicine chart segment.
+        EXTRACT as structured JSON:
+        1. All medical entities (diagnoses+ICD10, medications+dose, procedures).
+        2. Clinical dates (service, injury, surgery).
+        3. Detailed document sections (titles and summary content).
+        4. Any tables found (as structured rows/columns).
+        
+        Return valid JSON only.
         """
-        Process document with Google Cloud Vision
-        Extracts text, layout, and tables
-        """
-        # Convert PDF to images
-        images = convert_from_path(pdf_path, dpi=300)
         
-        all_text = []
-        all_tables = []
-        confidences = []
+        response = await asyncio.to_thread(
+            self.client.models.generate_content,
+            model=self.flash_model,
+            contents=[
+                types.Part.from_bytes(data=chunk_data, mime_type='application/pdf'),
+                prompt
+            ],
+            config=types.GenerateContentConfig(response_mime_type='application/json')
+        )
         
-        for page_num, image in enumerate(images, start=1):
-            # Convert PIL image to bytes
-            img_byte_arr = io.BytesIO()
-            image.save(img_byte_arr, format='PNG')
-            img_byte_arr = img_byte_arr.getvalue()
-            
-            # Create Vision API image
-            vision_image = vision.Image(content=img_byte_arr)
-            
-            # Detect document text with layout
-            response = self.vision_client.document_text_detection(
-                image=vision_image
-            )
-            
-            # Extract full text
-            if response.full_text_annotation:
-                page_text = response.full_text_annotation.text
-                all_text.append(page_text)
-                
-                # Calculate confidence
-                page_confidence = self._calculate_page_confidence(
-                    response.full_text_annotation
-                )
-                confidences.append(page_confidence)
-            
-            # Extract tables
-            tables = self._extract_tables_from_vision(
-                response,
-                page_num
-            )
-            all_tables.extend(tables)
-        
-        avg_confidence = sum(confidences) / len(confidences) if confidences else 0
-        
-        return {
-            'text': '\n\n'.join(all_text),
-            'tables': all_tables,
-            'confidence': avg_confidence,
-            'page_count': len(images)
-        }
-    
-    
-    def _calculate_page_confidence(self, annotation) -> float:
-        """Calculate average confidence for a page"""
-        if not annotation.pages:
-            return 0.0
-        
-        confidences = []
-        for page in annotation.pages:
-            for block in page.blocks:
-                if hasattr(block, 'confidence'):
-                    confidences.append(block.confidence)
-        
-        return sum(confidences) / len(confidences) if confidences else 0.0
-    
-    
-    def _extract_tables_from_vision(
+        try:
+            return json.loads(response.text)
+        except Exception:
+            return {"error": "extraction failed", "chunk": index}
+
+
+    async def _synthesize_results_with_pro(
         self, 
-        response,
-        page_number: int
-    ) -> List[Table]:
-        """
-        Extract table structures from Vision API response
-        """
-        tables = []
+        chunk_results: List[Dict[str, Any]],
+        hint: Optional[str]
+    ) -> Dict[str, Any]:
+        """Synthesizes parallel results into a master MediCase schema using Gemini 2.0 Pro"""
+        context = json.dumps(chunk_results)
+        prompt = f"""
+        ACT AS: Senior Medicolegal Quality Auditor.
+        INPUT DATA: Extracted findings from parallel segments of a large medical record.
+        {context}
         
-        if not response.full_text_annotation:
-            return tables
+        TASK:
+        1. Merge segments into a single consistent medical report summary.
+        2. Identify and explicitly list any clinical inconsistencies or contradictory statements.
+        3. Format everything for the MediCase API schema (sections, entities, dates, tables).
         
-        # Google Vision provides tables in the response
-        # This is a simplified extraction - production would be more sophisticated
-        for page in response.full_text_annotation.pages:
-            for block in page.blocks:
-                # Check if block looks like a table (heuristic)
-                if self._is_table_block(block):
-                    table = self._parse_table_block(block, page_number)
-                    if table:
-                        tables.append(table)
-        
-        return tables
-    
-    
-    def _is_table_block(self, block) -> bool:
-        """Heuristic to detect if a block is a table"""
-        # Check for grid-like structure
-        # This is simplified - production would use more sophisticated detection
-        if len(block.paragraphs) < 2:
-            return False
-        
-        # Check for consistent spacing/alignment
-        # (Implementation would go here)
-        
-        return False  # Placeholder
-    
-    
-    def _parse_table_block(self, block, page_number: int) -> Optional[Table]:
-        """Parse a table block into structured table"""
-        # Placeholder - production would parse cells, rows, columns
-        return None
-    
-    
-    async def _classify_document(
-        self,
-        text: str,
-        hint: Optional[str] = None
-    ) -> str:
-        """
-        Classify document type using Claude
+        Return ONLY valid JSON.
         """
         
-        prompt = f"""Classify this medical document into one of these categories:
-        
-Categories:
-- progress_note
-- operative_report
-- emergency_department_record
-- consultation_note
-- imaging_report (X-ray, MRI, CT)
-- physical_therapy_note
-- injection_note
-- discharge_summary
-- history_physical
-- laboratory_report
-- pathology_report
-- other
-
-Document text (first 2000 characters):
-{text[:2000]}
-
-{"Document type hint: " + hint if hint else ""}
-
-Respond with ONLY the category name, nothing else."""
-
-        response = self.claude_client.messages.create(
-            model="claude-3-5-sonnet-20240620",
-            max_tokens=50,
-            temperature=0,
-            messages=[{"role": "user", "content": prompt}]
+        response = await asyncio.to_thread(
+            self.client.models.generate_content,
+            model=self.pro_model,
+            contents=prompt,
+            config=types.GenerateContentConfig(response_mime_type='application/json')
         )
+        return json.loads(response.text)
+
+
+    async def _persist_results(self, case_id: UUID, document_id: UUID, result: MedicalDocumentIntelligenceResult):
+        """Writes findings to specialized medical intelligence tables"""
+        logger.info(f"Persisting findings for Case {case_id}, Document {document_id}")
         
-        doc_type = response.content[0].text.strip().lower()
-        return doc_type
-    
-    
-    async def _extract_sections(
-        self,
-        text: str,
-        doc_type: str
-    ) -> List[DocumentSection]:
-        """
-        Extract document sections using Claude
-        """
-        
-        prompt = f"""This is a {doc_type}. Extract all major sections from this document.
+        # 1. Update Document Metadata (Classification & Quality)
+        self.supabase.table("documents").update({
+            "document_type": result.document_type,
+            "quality_score": result.quality_score,
+            "intelligence_result": asdict(result),
+            "ocr_status": "completed"
+        }).eq("id", str(document_id)).execute()
 
-For each section, provide:
-1. Section title
-2. Section type (subjective, objective, assessment, plan, history, examination, etc.)
-3. Full section content
-
-Document:
-{text}
-
-Return as JSON array:
-[
-  {{
-    "title": "Chief Complaint",
-    "section_type": "subjective",
-    "content": "Patient reports..."
-  }},
-  ...
-]
-
-Return ONLY the JSON array, no other text."""
-
-        response = self.claude_client.messages.create(
-            model="claude-3-5-sonnet-20240620",
-            max_tokens=4000,
-            temperature=0,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        
-        # Parse JSON response
-        try:
-            sections_data = json.loads(response.content[0].text)
-            
-            sections = [
-                DocumentSection(
-                    title=s['title'],
-                    content=s['content'],
-                    section_type=s['section_type'],
-                    page_number=1,  # Would need to map back to pages
-                    confidence=0.85  # Claude is generally high confidence
-                )
-                for s in sections_data
+        # 2. Persist Medical Entities
+        if result.medical_entities:
+            entities_data = [
+                {
+                    "document_id": str(document_id),
+                    "entity_text": e.text,
+                    "category": e.category,
+                    "icd10_code": e.icd10_code,
+                    "confidence": e.confidence,
+                    "source_text": e.source_text
+                }
+                for e in result.medical_entities
             ]
-            
-            return sections
-            
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse sections JSON: {e}")
-            return []
-    
-    
-    async def _extract_medical_entities(
-        self,
-        text: str,
-        doc_type: str
-    ) -> List[MedicalEntity]:
-        """
-        Extract medical entities using Claude
-        """
+            self.supabase.table("medical_entities").insert(entities_data).execute()
         
-        prompt = f"""Extract all medical entities from this {doc_type}.
-
-Categories:
-- diagnosis (with ICD-10 code if identifiable)
-- medication (name, dose, frequency)
-- procedure (surgeries, injections, imaging)
-- symptom (pain, numbness, weakness, etc.)
-- anatomical_location (body parts/regions)
-- vital_sign (BP, HR, temp, etc.)
-- lab_value (test results)
-- finding (exam findings, imaging findings)
-
-Document:
-{text}
-
-Return as JSON array:
-[
-  {{
-    "text": "Right shoulder rotator cuff tear",
-    "category": "diagnosis",
-    "icd10_code": "M75.121",
-    "confidence": 0.95,
-    "source_text": "MRI reveals full-thickness rotator cuff tear of the right shoulder"
-  }},
-  {{
-    "text": "Ibuprofen 600mg",
-    "category": "medication",
-    "confidence": 0.90,
-    "source_text": "Patient taking ibuprofen 600mg three times daily"
-  }},
-  ...
-]
-
-Return ONLY the JSON array."""
-
-        response = self.claude_client.messages.create(
-            model="claude-3-5-sonnet-20240620",
-            max_tokens=6000,
-            temperature=0.2,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        
-        # Parse JSON response
-        try:
-            entities_data = json.loads(response.content[0].text)
-            
-            entities = [
-                MedicalEntity(
-                    text=e['text'],
-                    category=e['category'],
-                    icd10_code=e.get('icd10_code'),
-                    confidence=e.get('confidence', 0.8),
-                    source_text=e.get('source_text')
-                )
-                for e in entities_data
+        # 3. Persist Clinical Dates
+        if result.clinical_dates:
+            dates_data = [
+                {
+                    "document_id": str(document_id),
+                    "date_value": d.date[:10],
+                    "date_type": d.date_type,
+                    "confidence": d.confidence,
+                    "source_text": d.source_text
+                }
+                for d in result.clinical_dates
             ]
-            
-            return entities
-            
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse entities JSON: {e}")
-            return []
-    
-    
-    async def _extract_clinical_dates(
-        self,
-        text: str
-    ) -> List[ClinicalDate]:
-        """
-        Extract clinical dates using Claude
-        """
-        
-        prompt = f"""Extract all clinically significant dates from this document.
-
-Date types:
-- injury_date (when injury occurred)
-- service_date (date of this visit/report)
-- surgery_date
-- imaging_date
-- follow_up_date
-- symptom_onset_date
-- treatment_start_date
-- treatment_end_date
-
-Document:
-{text}
-
-Return as JSON array with ISO format dates:
-[
-  {{
-    "date": "2024-03-15",
-    "date_type": "injury_date",
-    "confidence": 0.95,
-    "source_text": "Patient injured on March 15, 2024"
-  }},
-  ...
-]
-
-Return ONLY the JSON array."""
-
-        response = self.claude_client.messages.create(
-            model="claude-3-5-sonnet-20240620",
-            max_tokens=2000,
-            temperature=0,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        
-        # Parse JSON response
-        try:
-            dates_data = json.loads(response.content[0].text)
-            
-            dates = [
-                ClinicalDate(
-                    date=d['date'],
-                    date_type=d['date_type'],
-                    confidence=d.get('confidence', 0.8),
-                    page_number=1,  # Would map back to pages
-                    source_text=d.get('source_text', '')
-                )
-                for d in dates_data
-            ]
-            
-            return dates
-            
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse dates JSON: {e}")
-            return []
-    
-    
-    def _calculate_quality_score(
-        self,
-        ocr_confidence: float,
-        entity_count: int,
-        date_count: int,
-        section_count: int
-    ) -> float:
-        """
-        Calculate overall document quality score
-        """
-        # Weight OCR confidence heavily
-        score = ocr_confidence * 0.5
-        
-        # Reward entity extraction
-        entity_score = min(entity_count / 20, 1.0) * 0.25
-        score += entity_score
-        
-        # Reward date extraction
-        date_score = min(date_count / 5, 1.0) * 0.15
-        score += date_score
-        
-        # Reward section detection
-        section_score = min(section_count / 8, 1.0) * 0.10
-        score += section_score
-        
-        return round(score, 2)
+            self.supabase.table("clinical_dates").insert(dates_data).execute()
