@@ -1,16 +1,20 @@
 import { apiClient } from './client'
+import { Report } from "@/types/report"
 
 export const reportsApi = {
   // Generate pre-exam report
   generatePreExam: (caseId: string) =>
-    apiClient.post(`/reports/pre-exam/${caseId}`),
+    apiClient.post<Report>(`/reports/pre-exam/${caseId}`),
 
   // Get report
-  get: (report_id: string) => apiClient.get(`/reports/${report_id}`),
+  get: (report_id: string) => apiClient.get<Report>(`/reports/${report_id}`),
+
+  // List reports
+  list: (params: any = {}) => apiClient.get<Report[]>('/reports'),
 
   // Create report
   create: (data: { case_id: string; report_type: string }) =>
-    apiClient.post('/reports', data),
+    apiClient.post<Report>('/reports', data),
 
   // Add section
   addSection: (report_id: string, section: any) => {
