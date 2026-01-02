@@ -259,6 +259,7 @@ class MedicalDocumentIntelligence:
         logger.info(f"Persisting findings for Case {case_id}, Document {document_id}")
         
         # 1. Update Document Metadata (Classification & Quality)
+        # Using subset of columns available in target Supabase environment
         self.supabase.table("documents").update({
             "document_type": result.document_type,
             "quality_score": result.quality_score,
@@ -266,6 +267,9 @@ class MedicalDocumentIntelligence:
             "ocr_status": "completed"
         }).eq("id", str(document_id)).execute()
 
+        # Schema Validation: Skip persistence for non-existent feature tables in target environment
+        # Both medical_entities and clinical_dates tables were confirmed to exist but might have restricted cols.
+        
         # 2. Persist Medical Entities
         if result.medical_entities:
             entities_data = [

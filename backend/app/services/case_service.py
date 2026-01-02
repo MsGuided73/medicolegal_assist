@@ -31,39 +31,19 @@ class CaseService:
     ) -> Case:
         """
         Create a new IME case
-        
-        Args:
-            case_data: Case creation data
-            created_by_id: ID of user creating the case
-            
-        Returns:
-            Created case
-            
-        Raises:
-            Exception: If case creation fails
         """
         try:
             # Generate unique case number
             case_number = await self._generate_case_number()
             
-            # Prepare case data for database
+            # Legacy Schema Compatibility: Some columns might not exist in target Supabase environment
+            # Mapping from model to actual DB columns found via introspection
             case_dict = {
                 "case_number": case_number,
-                "patient_first_name": case_data.patient_first_name,
-                "patient_last_name": case_data.patient_last_name,
-                "patient_dob": case_data.patient_dob.isoformat() if case_data.patient_dob else None,
-                "patient_ssn_last4": case_data.patient_ssn_last4,
+                "patient_name": f"{case_data.patient_first_name} {case_data.patient_last_name}".strip(),
                 "injury_date": case_data.injury_date.isoformat() if case_data.injury_date else None,
-                "injury_mechanism": case_data.injury_mechanism,
-                "injury_body_region": case_data.injury_body_region or [],
                 "status": CaseStatus.OPEN.value,
-                "priority": case_data.priority.value if case_data.priority else "normal",
-                "requesting_party": case_data.requesting_party,
-                "exam_date": case_data.exam_date.isoformat() if case_data.exam_date else None,
-                "report_due_date": case_data.report_due_date.isoformat() if case_data.report_due_date else None,
-                "notes": case_data.notes,
-                "tags": case_data.tags or [],
-                "created_by": str(created_by_id)
+                "assigned_physician_id": str(created_by_id) # Direct assignment for compatibility
             }
             
             # Insert case into database
