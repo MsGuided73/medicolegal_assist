@@ -28,8 +28,9 @@ class CasePriority(str, Enum):
 
 class CaseBase(BaseModel):
     """Base case model"""
-    patient_first_name: str
-    patient_last_name: str
+    patient_first_name: Optional[str] = None
+    patient_last_name: Optional[str] = None
+    patient_name: Optional[str] = None
     patient_dob: Optional[date] = None
     patient_ssn_last4: Optional[str] = Field(None, max_length=4)
     injury_date: Optional[date] = None
@@ -71,7 +72,7 @@ class Case(CaseBase):
     status: CaseStatus
     assigned_physician_id: Optional[UUID] = None
     assigned_assistant_id: Optional[UUID] = None
-    created_by: UUID
+    created_by: Optional[UUID] = None
     created_at: datetime
     updated_at: datetime
     

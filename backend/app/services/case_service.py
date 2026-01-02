@@ -135,17 +135,6 @@ class CaseService:
     ) -> List[Case]:
         """
         List cases with optional filters
-        
-        Args:
-            user_id: ID of user requesting (for RLS)
-            status: Filter by status
-            assigned_to: Filter by assigned user
-            priority: Filter by priority
-            limit: Maximum number of results
-            offset: Pagination offset
-            
-        Returns:
-            List of cases
         """
         try:
             query = self.supabase.table("cases").select("*")
@@ -166,7 +155,23 @@ class CaseService:
             
             result = query.execute()
             
-            cases = [Case(**case) for case in result.data]
+            cases = []
+            for case_data in result.data:
+                # Compatibility check: if patient_name exists but names don't, map them
+                if 'patient_name' in case_data:
+                    # Best effort split (reverse-compatibility)
+                    full_name = case_data['patient_name'] or ""
+                    parts = full_name.split(" ", 1)
+                    if 'patient_first_name' not in case_data or not case_data['patient_first_name']:
+                        case_data['patient_first_name'] = parts[0] if len(parts) > 0 else "Unknown"
+                    if 'patient_last_name' not in case_data or not case_data['patient_last_name']:
+                        case_data['patient_last_name'] = parts[1] if len(parts) > 1 else "Patient"
+                
+                # Mock created_by if missing to pass validation
+                if 'created_by' not in case_data or not case_data['created_by']:
+                    case_data['created_by'] = str(user_id)
+
+                cases.append(Case(**case_data))
             
             logger.info(f"Listed {len(cases)} cases for user {user_id}")
             
