@@ -8,6 +8,7 @@ from fastapi import APIRouter
 from app.api.v1 import (
     document_intelligence,
     cases,
+    documents,
     examinations,
     reports,
     timeline
@@ -20,6 +21,7 @@ api_router.include_router(document_intelligence.router)
 
 # Phase 3 clinical clinical routers
 api_router.include_router(cases.router)
+api_router.include_router(documents.router)
 api_router.include_router(examinations.router)
 api_router.include_router(reports.router)
 api_router.include_router(timeline.router)

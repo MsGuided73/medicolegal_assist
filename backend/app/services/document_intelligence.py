@@ -259,25 +259,22 @@ class MedicalDocumentIntelligence:
         logger.info(f"Persisting findings for Case {case_id}, Document {document_id}")
         
         # 1. Update Document Metadata (Classification & Quality)
-        # Using subset of columns available in target Supabase environment
+        # Dynamic Schema Mapping for Documents table
+        doc_update = {"ocr_status": "completed"}
+        
+        # Try to include advanced metadata if columns exist
         try:
-            self.supabase.table("documents").update({
+            doc_update.update({
                 "document_type": result.document_type,
                 "quality_score": result.quality_score,
-                "intelligence_result": asdict(result),
-                "ocr_status": "completed"
-            }).eq("id", str(document_id)).execute()
+                "intelligence_result": asdict(result)
+            })
+            self.supabase.table("documents").update(doc_update).eq("id", str(document_id)).execute()
         except Exception as e:
-            logger.warning(f"Error updating document metadata: {e}. Retrying with minimal fields.")
-            self.supabase.table("documents").update({
-                "ocr_status": "completed"
-            }).eq("id", str(document_id)).execute()
+            logger.warning(f"Metadata persistence restricted: {e}. Falling back to basic status.")
+            self.supabase.table("documents").update({"ocr_status": "completed"}).eq("id", str(document_id)).execute()
 
-        # Schema Validation: Skip persistence for non-existent feature tables in target environment
-        # Both medical_entities and clinical_dates tables were confirmed to exist but might have restricted cols.
-        
         # 2. Persist Medical Entities
-        # Try a sample insert to check for column availability (Safe mapping)
         if result.medical_entities:
             entities_data = [
                 {
