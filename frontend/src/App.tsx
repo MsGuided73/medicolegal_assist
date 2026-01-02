@@ -5,8 +5,15 @@ import LoginPage from '@/pages/LoginPage'
 import RegisterPage from '@/pages/RegisterPage'
 import DashboardPage from '@/pages/DashboardPage'
 import Layout from '@/components/Layout'
-import UploadDocument from '@/pages/UploadDocument'
-import Results from '@/pages/Results'
+import UploadPage from '@/pages/UploadPage'
+import DocumentAnalysisPage from '@/pages/DocumentAnalysisPage'
+import CasesPage from '@/pages/CasesPage'
+import CreateCasePage from '@/pages/CreateCasePage'
+import CaseDetailPage from '@/pages/CaseDetailPage'
+import ReportsPage from '@/pages/ReportsPage'
+import ReportEditorPage from '@/pages/ReportEditorPage'
+import ExaminationFormPage from '@/pages/ExaminationFormPage'
+import { Toaster } from 'react-hot-toast'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -20,6 +27,7 @@ const queryClient = new QueryClient({
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
+      <Toaster position="top-right" />
       <BrowserRouter>
         <Routes>
           {/* Public routes */}
@@ -37,13 +45,15 @@ function App() {
           >
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<DashboardPage />} />
-            <Route path="upload" element={<UploadDocument />} />
-            <Route path="results" element={<Results />} />
-            {/* Phase 5 clinical routes will go here */}
-            <Route path="cases" element={<div>Cases List (Phase 5)</div>} />
-            <Route path="cases/:id" element={<div>Case Detail (Phase 5)</div>} />
-            <Route path="examinations" element={<div>Examinations (Phase 5)</div>} />
-            <Route path="reports" element={<div>Reports (Phase 5)</div>} />
+            <Route path="upload" element={<UploadPage />} />
+            <Route path="cases/:id/analysis" element={<DocumentAnalysisPage />} />
+            {/* Phase 5 clinical routes */}
+            <Route path="cases" element={<CasesPage />} />
+            <Route path="cases/new" element={<CreateCasePage />} />
+            <Route path="cases/:id" element={<CaseDetailPage />} />
+            <Route path="examinations" element={<ExaminationFormPage />} />
+            <Route path="reports" element={<ReportsPage />} />
+            <Route path="reports/:id" element={<ReportEditorPage />} />
             <Route path="settings" element={<div>Settings (Phase 5)</div>} />
           </Route>
 
