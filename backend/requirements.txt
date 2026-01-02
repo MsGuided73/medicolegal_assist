@@ -8,7 +8,7 @@ supabase==2.0.3
 postgrest==0.13.0
 
 # Document Intelligence
-google-cloud-vision==3.5.0
+google-genai==0.2.1
 anthropic==0.7.0
 
 # PDF Processing
