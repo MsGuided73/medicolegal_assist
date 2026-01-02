@@ -6,15 +6,15 @@ Authentication using Supabase JWT validation
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from typing import Dict
-import os
+from app.config import settings
 from supabase import create_client, Client
 
 security = HTTPBearer()
 
 # Initialize Supabase admin client
 supabase: Client = create_client(
-    os.getenv("SUPABASE_URL"),
-    os.getenv("SUPABASE_SERVICE_KEY") # Phase 2 used SUPABASE_SERVICE_KEY
+    settings.SUPABASE_URL,
+    settings.SUPABASE_SERVICE_KEY
 )
 
 async def get_current_user(

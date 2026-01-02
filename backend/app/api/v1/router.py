@@ -6,7 +6,6 @@ Combines all API routers
 from fastapi import APIRouter
 
 from app.api.v1 import (
-    auth,
     document_intelligence,
     cases,
     examinations,
@@ -14,7 +13,7 @@ from app.api.v1 import (
     timeline
 )
 
-api_router = APIRouter(prefix="/api/v1")
+api_router = APIRouter()
 
 # Unified Gemini-powered Document Intelligence
 api_router.include_router(document_intelligence.router)

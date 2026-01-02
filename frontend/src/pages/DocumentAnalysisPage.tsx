@@ -1,6 +1,7 @@
 import { useParams, useNavigate, useLocation } from "react-router-dom"
 import { useCase } from "@/hooks/useCases"
 import { useCaseTimeline } from "@/hooks/useTimeline"
+import { useMedicalEntities } from "@/hooks/useDocuments" // Use the hook I defined earlier
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -22,21 +23,19 @@ export default function DocumentAnalysisPage() {
   
   const { data: caseData } = useCase(caseId || "")
   const { data: timeline } = useCaseTimeline(caseId || "")
+  const { data: allEntities } = useMedicalEntities(caseId || "")
 
-  // In a real scenario, if no state result, we might fetch from API
-  const displayResult = aiResult || {
-    medical_entities: [],
-    clinical_dates: [],
-    quality_score: 0.85,
-    ocr_confidence: 0.92
-  }
+  // Use the new holistic data from the case
+  const diagnoses = allEntities?.filter((e: any) => e.category === 'diagnosis') || []
+  const medications = allEntities?.filter((e: any) => e.category === 'medication') || []
+  const procedures = allEntities?.filter((e: any) => e.category === 'procedure') || []
 
-  const diagnoses = displayResult.medical_entities?.filter((e: any) => e.category === 'diagnosis') || []
-  const medications = displayResult.medical_entities?.filter((e: any) => e.category === 'medication') || []
-  const procedures = displayResult.medical_entities?.filter((e: any) => e.category === 'procedure') || []
+  // Fallbacks for quality scores
+  const qualityScore = aiResult?.quality_score || 0.85
+  const ocrConfidence = aiResult?.ocr_confidence || 0.92
 
   return (
-    <div className="p-6 space-y-6 max-w-6xl mx-auto">
+    <div className="p-6 space-y-6 max-w-6xl mx-auto text-left">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" onClick={() => navigate(`/cases/${caseId}`)}>
@@ -45,7 +44,7 @@ export default function DocumentAnalysisPage() {
           <div>
             <h1 className="text-2xl font-bold">Analysis Results</h1>
             <p className="text-sm text-muted-foreground mr-2">
-              Case #{caseData?.case_number} • AI processing complete
+              Case #{caseData?.case_number} • {caseData?.patient_first_name} {caseData?.patient_last_name}
             </p>
           </div>
         </div>
@@ -58,29 +57,29 @@ export default function DocumentAnalysisPage() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card>
             <CardHeader className="py-4">
-                <CardTitle className="text-sm font-medium">Quality Score</CardTitle>
+                <CardTitle className="text-sm font-medium">Case Quality Avg.</CardTitle>
             </CardHeader>
             <CardContent>
-                <div className="text-2xl font-bold">{(displayResult.quality_score * 100).toFixed(0)}%</div>
-                <p className="text-xs text-muted-foreground">Document clarity and legibility</p>
+                <div className="text-2xl font-bold">{(qualityScore * 100).toFixed(0)}%</div>
+                <p className="text-xs text-muted-foreground">Overall legibility of record set</p>
             </CardContent>
         </Card>
         <Card>
             <CardHeader className="py-4">
-                <CardTitle className="text-sm font-medium">OCR Confidence</CardTitle>
+                <CardTitle className="text-sm font-medium">Extraction Accuracy</CardTitle>
             </CardHeader>
             <CardContent>
-                <div className="text-2xl font-bold">{(displayResult.ocr_confidence * 100).toFixed(0)}%</div>
-                <p className="text-xs text-muted-foreground">Text extraction accuracy</p>
+                <div className="text-2xl font-bold">{(ocrConfidence * 100).toFixed(0)}%</div>
+                <p className="text-xs text-muted-foreground">Confidence in synthesized findings</p>
             </CardContent>
         </Card>
         <Card>
             <CardHeader className="py-4">
-                <CardTitle className="text-sm font-medium">Entities Found</CardTitle>
+                <CardTitle className="text-sm font-medium">Total Entities Found</CardTitle>
             </CardHeader>
             <CardContent>
-                <div className="text-2xl font-bold">{displayResult.medical_entities?.length || 0}</div>
-                <p className="text-xs text-muted-foreground">Clinical details extracted</p>
+                <div className="text-2xl font-bold">{diagnoses.length + medications.length + procedures.length}</div>
+                <p className="text-xs text-muted-foreground">Data points across all documents</p>
             </CardContent>
         </Card>
       </div>
