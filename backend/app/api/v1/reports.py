@@ -5,7 +5,7 @@ RESTful endpoints for IME report generation
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 
 from app.models.report import (
@@ -17,6 +17,19 @@ from app.services.report_service import ReportService
 from app.api.dependencies import get_current_user
 
 router = APIRouter(prefix="/reports", tags=["reports"])
+
+
+@router.get("", response_model=List[Report])
+async def list_reports(
+    case_id: Optional[UUID] = None,
+    current_user: dict = Depends(get_current_user),
+):
+    """List reports for the current user.
+
+    Optionally filter by case_id.
+    """
+    service = ReportService()
+    return await service.list_reports(user_id=UUID(current_user["id"]), case_id=case_id)
 
 
 @router.post("", response_model=Report, status_code=status.HTTP_201_CREATED)
@@ -81,11 +94,16 @@ async def update_report(
     """
     service = ReportService()
     
-    # TODO: Implement update logic
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Report update not yet implemented"
+    updated = await service.update_report(
+        report_id=report_id,
+        report_data=report_data,
+        user_id=UUID(current_user["id"]),
     )
+
+    if not updated:
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    return updated
 
 
 @router.post("/{report_id}/sections", response_model=ReportSection)

@@ -30,10 +30,6 @@ passlib[bcrypt]==1.7.4
 httpx==0.25.1
 aiohttp==3.9.0
 
-# Job Queue
-celery[redis]==5.3.4
-redis==5.0.1
-
 # Testing
 pytest==7.4.3
 pytest-asyncio==0.21.1

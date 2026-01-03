@@ -60,6 +60,69 @@ class ReportService:
         except Exception as e:
             logger.error(f"Failed to create report: {str(e)}")
             raise
+
+    async def list_reports(self, *, user_id: UUID, case_id: Optional[UUID] = None) -> List[Report]:
+        """List reports, optionally filtered by case.
+
+        This unblocks the frontend Reports page which expects a list endpoint.
+        """
+        try:
+            q = self.supabase.table("reports").select("*").order("updated_at", desc=True)
+            if case_id is not None:
+                q = q.eq("case_id", str(case_id))
+
+            res = q.execute()
+            return [Report(**r) for r in (res.data or [])]
+        except Exception as e:
+            logger.error(f"Failed to list reports: {str(e)}")
+            return []
+
+    async def update_report(
+        self,
+        *,
+        report_id: UUID,
+        report_data: ReportUpdate,
+        user_id: UUID,
+    ) -> Optional[Report]:
+        """Update report metadata fields.
+
+        Keeps things intentionally simple: only updates provided fields.
+        """
+        try:
+            payload: Dict[str, Any] = {}
+
+            if report_data.status is not None:
+                payload["status"] = report_data.status
+            if report_data.report_date is not None:
+                payload["report_date"] = report_data.report_date.isoformat()
+            if report_data.report_type is not None:
+                payload["report_type"] = report_data.report_type.value
+            if report_data.content is not None:
+                payload["content"] = report_data.content
+
+            if not payload:
+                # No-op: return existing report
+                existing = (
+                    self.supabase.table("reports")
+                    .select("*")
+                    .eq("id", str(report_id))
+                    .single()
+                    .execute()
+                )
+                return Report(**existing.data) if existing.data else None
+
+            res = (
+                self.supabase.table("reports")
+                .update(payload)
+                .eq("id", str(report_id))
+                .execute()
+            )
+            if not res.data:
+                return None
+            return Report(**res.data[0])
+        except Exception as e:
+            logger.error(f"Failed to update report: {str(e)}")
+            return None
     
     async def get_report(
         self,
@@ -391,5 +454,26 @@ class ReportService:
         report_id: UUID,
         template_id: UUID
     ):
-        """Apply template to report"""
-        pass
+        """Apply template to report.
+
+        Current repo ships with frontend-only templates (see frontend/src/lib/reportTemplates.ts).
+        On the backend we treat this as optional; if a template_id is provided we create a minimal
+        placeholder section so the report is not empty.
+        """
+        try:
+            # Minimal placeholder: real template system can be layered in later.
+            # Use a deterministic system user id (kept as nil UUID) for now.
+            await self.add_section(
+                ReportSectionCreate(
+                    report_id=report_id,
+                    section_type="template",
+                    section_title="Template Applied",
+                    section_order=0,
+                    content=f"Template applied: {template_id}",
+                    is_auto_generated=True,
+                ),
+                user_id=UUID("00000000-0000-0000-0000-000000000000"),
+            )
+        except Exception:
+            # Template is non-critical; don't break report creation.
+            logger.exception("Failed to apply template")

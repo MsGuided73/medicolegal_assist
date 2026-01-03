@@ -33,9 +33,6 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
     
-    # Redis (Job Queue)
-    REDIS_URL: str = "redis://localhost:6379/0"
-    
     # Security
     SECRET_KEY: str
     ALGORITHM: str = "HS256"

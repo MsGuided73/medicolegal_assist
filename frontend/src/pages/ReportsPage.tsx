@@ -1,20 +1,27 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Plus, Search, Filter, Download, Edit2 } from "lucide-react"
 import { Link } from "react-router-dom"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { useReports } from "@/hooks/useReports"
 
 export default function ReportsPage() {
   const [search, setSearch] = useState("")
-  
-  // No list reports API yet in reports.ts, I'll use cases list and then fetch reports for each?
-  // Actually I should add listReports to reportsApi but for now I'll just show placeholders or 
-  // assume there's a list endpoint.
-  
-  // Checking api/reports.ts ... it doesn't have list. 
-  // I'll add list to reportsApi.
+
+  const { data: reports, isLoading } = useReports()
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return reports || []
+    return (reports || []).filter((r: any) => {
+      const patient = `${r.patient_first_name || ""} ${r.patient_last_name || ""}`.toLowerCase()
+      const caseNum = (r.case_number || "").toLowerCase()
+      const type = (r.report_type || "").toLowerCase()
+      return patient.includes(q) || caseNum.includes(q) || type.includes(q)
+    })
+  }, [reports, search])
   
   return (
     <div className="p-6 space-y-6">
@@ -48,32 +55,43 @@ export default function ReportsPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {/* Placeholder for list */}
-        <Card className="hover:shadow-md transition-shadow">
+        {isLoading && (
+          <p className="text-sm text-muted-foreground">Loading reports…</p>
+        )}
+
+        {!isLoading && filtered.length === 0 && (
+          <p className="text-sm text-muted-foreground">No reports found.</p>
+        )}
+
+        {filtered.map((r: any) => (
+          <Card key={r.id} className="hover:shadow-md transition-shadow">
             <CardHeader className="pb-2">
-                <div className="flex justify-between items-start">
-                    <Badge variant="secondary">DRAFT</Badge>
-                    <span className="text-xs text-muted-foreground">2026-0001</span>
-                </div>
-                <CardTitle className="text-lg">IME Report: John Doe</CardTitle>
+              <div className="flex justify-between items-start">
+                <Badge variant="secondary">{String(r.status || "draft").toUpperCase()}</Badge>
+                <span className="text-xs text-muted-foreground">{r.case_id}</span>
+              </div>
+              <CardTitle className="text-lg">{String(r.report_type || "report").toUpperCase()} Report</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-                <p className="text-sm text-muted-foreground line-clamp-2">Independent medical evaluation for lumbar spine injury.</p>
-                <div className="flex items-center justify-between text-xs text-muted-foreground border-t pt-4">
-                    <span>Updated 2h ago</span>
-                    <div className="flex gap-2">
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                            <Download className="h-4 w-4" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
-                            <Link to="/reports/some-id">
-                                <Edit2 className="h-4 w-4" />
-                            </Link>
-                        </Button>
-                    </div>
+              <p className="text-sm text-muted-foreground line-clamp-2">
+                Report date: {r.report_date || "—"}
+              </p>
+              <div className="flex items-center justify-between text-xs text-muted-foreground border-t pt-4">
+                <span>Updated {r.updated_at ? new Date(r.updated_at).toLocaleString() : "—"}</span>
+                <div className="flex gap-2">
+                  <Button variant="ghost" size="icon" className="h-8 w-8" disabled>
+                    <Download className="h-4 w-4" />
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+                    <Link to={`/reports/${r.id}`}>
+                      <Edit2 className="h-4 w-4" />
+                    </Link>
+                  </Button>
                 </div>
+              </div>
             </CardContent>
-        </Card>
+          </Card>
+        ))}
       </div>
     </div>
   )
