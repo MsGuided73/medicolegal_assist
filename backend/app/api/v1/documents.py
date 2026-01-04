@@ -109,7 +109,7 @@ async def analyze_document(
         )
     
     # Initialize document intelligence service
-    api_key = os.getenv('GOOGLE_AI_STUDIO_API_KEY')
+    api_key = settings.GOOGLE_AI_STUDIO_API_KEY
     if not api_key:
         raise HTTPException(
             status_code=500,
