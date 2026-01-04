@@ -4,6 +4,9 @@ MediCase FastAPI Application Entry Point
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi import Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import logging
 
@@ -44,6 +47,14 @@ app = FastAPI(
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     openapi_url="/api/openapi.json"
+)
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.error("Validation error on %s %s", request.method, request.url)
+    logger.error("Errors: %s", exc.errors())
+    logger.error("Body: %s", await request.body())
+    return JSONResponse(status_code=422, content={"detail": exc.errors()}
 )
 
 # Configure CORS
