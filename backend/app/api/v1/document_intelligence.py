@@ -34,7 +34,7 @@ def get_doc_intelligence_service() -> MedicalDocumentIntelligence:
     
     if _doc_intelligence_service is None:
         # Note: Using GOOGLE_AI_STUDIO_API_KEY from settings/env
-        api_key = os.getenv('GOOGLE_AI_STUDIO_API_KEY')
+        api_key = settings.GOOGLE_AI_STUDIO_API_KEY
         if not api_key:
             raise RuntimeError("GOOGLE_AI_STUDIO_API_KEY not found in environment")
             
