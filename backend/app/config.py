@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     
     # Logging
     LOG_LEVEL: str = "INFO"
+    # If True, include (truncated) request bodies in validation error logs.
+    # Keep False in prod to reduce PHI risk.
+    LOG_VALIDATION_BODIES: bool = False
     
     model_config = SettingsConfigDict(
         env_file=".env",

@@ -108,6 +108,20 @@ cd backend
 pytest --cov=app
 ```
 
+### Google AI Studio (Gemini) API Smoke Test
+
+This repo includes a small script that verifies your **Google AI Studio API key** works
+and that the Gemini API responds with valid JSON.
+
+**Prereq:** set `GOOGLE_AI_STUDIO_API_KEY` in `medicase/backend/.env` (see `medicase/backend/.env.example`).
+
+**Run (PowerShell):**
+```powershell
+python medicase/backend/scripts/test_google_ai_studio.py --dotenv medicase/backend/.env
+```
+
+**Expected output:** a JSON blob that includes `latency_s` and `response_json.status == "ok"`.
+
 **Frontend:**
 ```bash
 cd frontend

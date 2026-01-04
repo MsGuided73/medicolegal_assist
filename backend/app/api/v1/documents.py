@@ -1,19 +1,25 @@
-"""
-Documents API Router
+"""Documents API Router
+
+This file includes a "compatibility" endpoint that accepts either JSON payloads
+or multipart upload parameters. When clients get a 422 here, we want enough
+debug logs to see *which* branch ran and what inputs were present.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Body
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Body, Request
 from typing import List, Optional
 from uuid import UUID
 import os
 import shutil
 import tempfile
+import logging
 
 from app.models.case import Case # Using generic Case model for context
 from app.services.case_service import CaseService
 from app.api.dependencies import get_current_user
 from app.core.database import get_supabase_admin
 from app.services.document_intelligence import MedicalDocumentIntelligence
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 
@@ -23,6 +29,7 @@ async def create_document_entry(
     payload: dict | None = Body(default=None),
     case_id: UUID | None = None,
     file: UploadFile | None = None,
+    request: Request = None,
     current_user: dict = Depends(get_current_user),
 ):
     """Compatibility endpoint for frontend.
@@ -36,6 +43,16 @@ async def create_document_entry(
     If a multipart upload is sent instead (case_id + file), we also accept it.
     """
     supabase = get_supabase_admin()
+
+    request_id = getattr(getattr(request, "state", None), "request_id", "-") if request else "-"
+    logger.debug(
+        "[%s] /documents create_document_entry called content-type=%s has_file=%s query_case_id=%s payload_keys=%s",
+        request_id,
+        request.headers.get("content-type") if request else None,
+        file is not None,
+        str(case_id) if case_id else None,
+        list(payload.keys()) if isinstance(payload, dict) else None,
+    )
 
     try:
         # Branch based on content type.
@@ -65,6 +82,13 @@ async def create_document_entry(
                 filename = payload.get("file_name")
 
         if not case_id_str or not filename:
+            logger.warning(
+                "[%s] /documents missing required fields case_id=%s filename=%s (has_file=%s)",
+                request_id,
+                case_id_str,
+                filename,
+                file is not None,
+            )
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="case_id and filename are required",
