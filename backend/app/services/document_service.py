@@ -51,12 +51,15 @@ class DocumentService:
         user_id: UUID,
         file_size: int,
         mime_type: str = "application/pdf",
+        document_id: Optional[UUID] = None,
     ) -> DocumentUploadResult:
         """Upload document to storage and create a DB row.
 
         Returns (document_row, document_id, storage_path).
         """
-        document_id = uuid4()
+        # For idempotency and to support retries, callers may provide a
+        # document_id. If provided, we will reuse that ID and upsert metadata.
+        document_id = document_id or uuid4()
         storage_path = f"{case_id}/{document_id}/{file_name}"
 
         try:
@@ -104,9 +107,11 @@ class DocumentService:
             }
 
             try:
+                # Upsert gives us idempotency: if the row already exists (same id),
+                # this will update it instead of creating duplicates.
                 insert_res = (
                     self.supabase.table("documents")
-                    .insert({**doc_row, **extended})
+                    .upsert({**doc_row, **extended})
                     .execute()
                 )
             except Exception as e:
@@ -114,7 +119,7 @@ class DocumentService:
                     "Documents insert with extended columns failed; retrying with base schema only. %s",
                     e,
                 )
-                insert_res = self.supabase.table("documents").insert(doc_row).execute()
+                insert_res = self.supabase.table("documents").upsert(doc_row).execute()
 
             if not insert_res.data:
                 raise RuntimeError("Failed to create document row")
@@ -231,4 +236,3 @@ class DocumentService:
             self.supabase.storage.from_(self.bucket_name).remove([path])
 
         self.supabase.table("documents").delete().eq("id", str(document_id)).execute()
-

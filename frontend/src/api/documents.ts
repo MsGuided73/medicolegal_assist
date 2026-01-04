@@ -8,17 +8,14 @@ export const documentsApi = {
   list: (caseId: string) =>
     apiClient.get<{ documents: UploadedDocument[] }>(`/document-intelligence/documents/${caseId}`),
 
-  // Create document entry
-  create: (data: { case_id: string; filename: string; document_type?: string }) =>
-    apiClient.post<UploadedDocument>("/documents", data),
-
-  // Analyze document
-  analyze: (caseId: string, documentId: string, file: File) => {
+  // Analyze document (single-step: upload -> persist -> analyze)
+  analyze: (caseId: string, file: File, documentId?: string) => {
     const formData = new FormData()
     formData.append("file", file)
     
     // Explicitly add case and document context to the analyze endpoint
-    return apiClient.post(`/document-intelligence/analyze?case_id=${caseId}&document_id=${documentId}`, formData)
+    const docParam = documentId ? `&document_id=${documentId}` : ""
+    return apiClient.post(`/document-intelligence/analyze?case_id=${caseId}${docParam}`, formData)
   },
 
   // Get signed URL for download

@@ -20,15 +20,9 @@ export function useUploadAndAnalyze() {
   
   return useMutation({
     mutationFn: async ({ caseId, file }: { caseId: string; file: File }) => {
-      // 1. Create document entry
-      const doc = await documentsApi.create({
-        case_id: caseId,
-        filename: file.name,
-        document_type: "medical_records"
-      })
-      
-      // 2. Start analysis
-      return await documentsApi.analyze(caseId, doc.id, file)
+      // Single-step: backend owns upload -> persist -> analyze.
+      // The response includes the server-generated document_id.
+      return await documentsApi.analyze(caseId, file)
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["documents", variables.caseId] })

@@ -23,7 +23,7 @@ async def create_document_entry(
     payload: dict | None = Body(default=None),
     case_id: UUID | None = None,
     file: UploadFile | None = None,
-    current_user: dict = Depends(get_current_user)
+    current_user: dict = Depends(get_current_user),
 ):
     """Compatibility endpoint for frontend.
 
@@ -38,31 +38,36 @@ async def create_document_entry(
     supabase = get_supabase_admin()
 
     try:
-        # Branch based on content type
+        # Branch based on content type.
+        # NOTE: when this endpoint is hit with multipart/form-data, FastAPI may not parse
+        # JSON Body(). To be forgiving, we also accept case_id/filename from query params.
         if file is not None:
             if case_id is None:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="case_id is required when uploading a file"
+                    detail="case_id is required when uploading a file",
                 )
 
             filename = file.filename
             document_type = None
             case_id_str = str(case_id)
         else:
-            if not payload:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="JSON body required"
-                )
-            case_id_str = payload.get("case_id")
-            filename = payload.get("filename")
-            document_type = payload.get("document_type")
+            case_id_str = (payload or {}).get("case_id") if payload else None
+            filename = (payload or {}).get("filename") if payload else None
+            document_type = (payload or {}).get("document_type") if payload else None
+
+            # Fallback: allow querystring-style form usage
+            if not case_id_str and case_id is not None:
+                case_id_str = str(case_id)
+
+            # Some clients might use file_name
+            if not filename and payload:
+                filename = payload.get("file_name")
 
         if not case_id_str or not filename:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="case_id and filename are required"
+                detail="case_id and filename are required",
             )
 
         doc_data = {

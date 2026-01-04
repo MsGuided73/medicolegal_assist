@@ -82,29 +82,18 @@ async def analyze_document(
 
         doc_service = DocumentService()
 
-        # 1) Upload to Supabase Storage + create documents row (if document_id not supplied)
-        if document_id is None:
-            upload = await doc_service.upload_document(
-                file_path=tmp_file_path,
-                file_name=file.filename,
-                case_id=case_id,
-                user_id=UUID(current_user["id"]),
-                file_size=len(content),
-            )
-            document_id = upload.document_id
-        else:
-            # If caller already created a row, we still want the PDF stored. For now,
-            # we treat this as legacy behavior and store the file, then keep analyzing.
-            upload = await doc_service.upload_document(
-                file_path=tmp_file_path,
-                file_name=file.filename,
-                case_id=case_id,
-                user_id=UUID(current_user["id"]),
-                file_size=len(content),
-            )
-            # Prefer the caller-provided ID for downstream analysis persistence.
-            # (medical_entities/clinical_dates link via document_id)
-            document_id = document_id
+        # 1) Upload to Supabase Storage + upsert documents row.
+        # Idempotent: if the caller retries with the same document_id we reuse it
+        # and update the existing row instead of creating duplicates.
+        upload = await doc_service.upload_document(
+            file_path=tmp_file_path,
+            file_name=file.filename,
+            case_id=case_id,
+            user_id=UUID(current_user["id"]),
+            file_size=len(content),
+            document_id=document_id,
+        )
+        document_id = upload.document_id
 
         # 2) status -> processing
         await doc_service.update_status(document_id=document_id, status="processing")
