@@ -94,7 +94,17 @@ async def request_id_middleware(request: Request, call_next):
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     # This is the canonical source of FastAPI-generated 422s.
     request_id = getattr(request.state, "request_id", "-")
-    raw_body = await request.body() if settings.LOG_VALIDATION_BODIES else b""
+    # IMPORTANT:
+    # In some cases (notably multipart/form-data uploads), the request body stream
+    # may have already been consumed by the time we reach this handler.
+    # Attempting to read it again raises `RuntimeError: Stream consumed`, which
+    # can mask the original 422 and also interfere with proper CORS responses.
+    raw_body = b""
+    if settings.LOG_VALIDATION_BODIES:
+        try:
+            raw_body = await request.body()
+        except RuntimeError:
+            raw_body = b"<stream consumed>"
 
     logger.warning(
         "[%s] 422 RequestValidationError on %s %s (content-type=%s)",

@@ -53,7 +53,7 @@ def get_doc_intelligence_service() -> MedicalDocumentIntelligence:
 @router.post("/analyze", response_model=dict)
 async def analyze_document(
     case_id: UUID,
-    document_id: UUID,
+    document_id: Optional[UUID] = None,
     file: UploadFile = File(...),
     background_processing: bool = True,
     background_tasks: BackgroundTasks = BackgroundTasks(),
@@ -103,8 +103,46 @@ async def analyze_document(
             detail="Failed to verify case access",
         )
 
-    # Check document exists
+    # Determine/verify document
     supabase = get_supabase_admin()
+    if document_id is None:
+        # Frontend currently calls this endpoint without document_id.
+        # Try to infer it by matching filename within the case.
+        try:
+            matches = (
+                supabase.table("documents")
+                .select("id, filename")
+                .eq("case_id", str(case_id))
+                .eq("filename", file.filename)
+                .order("created_at", desc=True)
+                .limit(2)
+                .execute()
+            )
+        except Exception as e:
+            logger.error(f"Failed to search for document by filename: {e}")
+            raise HTTPException(status_code=500, detail="Failed to infer document_id")
+
+        if not matches.data:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "document_id is required unless the document already exists in the case with the same filename. "
+                    "Upload the document first (so it exists in the documents table), or call with document_id."
+                ),
+            )
+
+        if len(matches.data) > 1:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Multiple documents in this case match the uploaded filename. "
+                    "Please call with an explicit document_id."
+                ),
+            )
+
+        document_id = UUID(matches.data[0]["id"])
+
+    # Now verify the (possibly inferred) document belongs to the case
     try:
         doc_result = (
             supabase.table("documents")
@@ -125,10 +163,7 @@ async def analyze_document(
         raise
     except Exception as e:
         logger.error(f"Document verification failed: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail="Failed to verify document",
-        )
+        raise HTTPException(status_code=500, detail="Failed to verify document")
 
     # Process based on background preference
     if background_processing:
@@ -607,4 +642,3 @@ async def _reprocess_from_storage(
             os.unlink(tmp_file_path)
         except Exception:
             pass
-
