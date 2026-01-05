@@ -3,11 +3,11 @@ import { getAccessToken } from '@/lib/supabase'
 const API_URL = import.meta.env.VITE_API_URL
 
 class ApiClient {
-  private async getHeaders(): Promise<HeadersInit> {
+  private async getHeaders(contentType?: string): Promise<HeadersInit> {
     const token = await getAccessToken()
     
     return {
-      'Content-Type': 'application/json',
+      ...(contentType && { 'Content-Type': contentType }),
       ...(token && { 'Authorization': `Bearer ${token}` }),
     }
   }
@@ -26,10 +26,11 @@ class ApiClient {
   }
 
   async post<T>(endpoint: string, data?: any): Promise<T> {
+    const isFormData = data instanceof FormData
     const response = await fetch(`${API_URL}${endpoint}`, {
       method: 'POST',
-      headers: await this.getHeaders(),
-      body: data ? JSON.stringify(data) : undefined,
+      headers: await this.getHeaders(isFormData ? undefined : 'application/json'),
+      body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
     })
 
     if (!response.ok) {

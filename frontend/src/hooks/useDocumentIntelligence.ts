@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query'
-import { apiClient } from '@/lib/api-client'
+import { apiClient } from '@/api/client'
 
 export function useDocumentIntelligence() {
   const analyzeDocument = useMutation({
@@ -9,15 +9,9 @@ export function useDocumentIntelligence() {
       
       const response = await apiClient.post(
         '/document-intelligence/analyze',
-        formData,
-        {
-          headers: {
-            'Content-Type': 'multipart/form-data'
-          }
-        }
+        formData
       )
-      
-      return response.data
+      return response
     }
   })
 

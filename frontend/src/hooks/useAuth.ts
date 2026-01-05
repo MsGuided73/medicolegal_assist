@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { apiClient } from '@/lib/api-client'
+import { apiClient } from '@/api/client'
 
 interface User {
   id: string
@@ -16,14 +16,22 @@ interface AuthState {
   setUser: (user: User, token: string) => void
 }
 
+interface LoginResponse {
+  user: User
+  access_token: string
+}
+
 export const useAuth = create<AuthState>((set) => ({
   user: null,
   token: localStorage.getItem('token'),
   
   login: async (email, password) => {
     // Note: In real setup, login would be to Supabase or your backend
-    const response = await apiClient.post('/auth/login', { email, password })
-    const { user, access_token } = response.data
+    // Our `apiClient.post<T>()` returns the parsed JSON body directly (not an AxiosResponse)
+    const { user, access_token } = await apiClient.post<LoginResponse>('/auth/login', {
+      email,
+      password,
+    })
     
     localStorage.setItem('token', access_token)
     set({ user, token: access_token })
