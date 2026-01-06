@@ -11,7 +11,8 @@ from app.api.v1 import (
     documents,
     examinations,
     reports,
-    timeline
+    timeline,
+    debug,
 )
 
 api_router = APIRouter()
@@ -25,3 +26,6 @@ api_router.include_router(documents.router)
 api_router.include_router(examinations.router)
 api_router.include_router(reports.router)
 api_router.include_router(timeline.router)
+
+# Temporary debug endpoints (do not enable in production)
+api_router.include_router(debug.router)

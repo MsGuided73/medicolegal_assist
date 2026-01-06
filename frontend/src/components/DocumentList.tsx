@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { FileText, Download, CheckCircle, Clock, AlertCircle } from "lucide-react"
 
 import { apiClient } from "@/api/client"
-import { UploadedDocument } from "@/types/document"
+import { documentsApi } from "@/api/documents"
 
 function formatDate(iso: string) {
   try {
@@ -28,11 +28,11 @@ function getFilesize(doc: any): number | undefined {
 export default function DocumentList({ caseId }: { caseId: string }) {
   const { data, isLoading } = useQuery({
     queryKey: ["documents", caseId],
-    queryFn: () => apiClient.get<{ documents: UploadedDocument[] }>(`/document-intelligence/documents/${caseId}`),
+    queryFn: () => documentsApi.list(caseId),
     enabled: !!caseId,
   })
 
-  const documents = (data?.documents ?? []) as any[]
+  const documents = (data ?? []) as any[]
 
   const statusIcons: Record<string, JSX.Element> = {
     pending: <Clock className="w-4 h-4 text-gray-400" />,
@@ -108,4 +108,3 @@ export default function DocumentList({ caseId }: { caseId: string }) {
     </div>
   )
 }
-

@@ -20,9 +20,26 @@ export function useUploadAndAnalyze() {
   
   return useMutation({
     mutationFn: async ({ caseId, file }: { caseId: string; file: File }) => {
-      // Single-step: backend owns upload -> persist -> analyze.
-      // The response includes the server-generated document_id.
-      return await documentsApi.analyze(caseId, file)
+      // Two-step to avoid race conditions:
+      // 1) upload (persist + create documents row)
+      // 2) analyze with explicit document_id
+
+      const uploadRes = await documentsApi.upload(caseId, file)
+      const documentId = (uploadRes?.id ?? uploadRes?.document_id) as string | undefined
+
+      if (!documentId) {
+        // Fallback: list and match by filename (best-effort)
+        const docs = await documentsApi.list(caseId)
+        const match = (docs || []).find((d: any) => d.filename === file.name)
+        if (!match?.id) {
+          throw new Error(
+            `Upload succeeded but document_id was not returned and could not be inferred by listing documents. filename=${file.name}`
+          )
+        }
+        return await documentsApi.analyze(caseId, file, match.id)
+      }
+
+      return await documentsApi.analyze(caseId, file, documentId)
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["documents", variables.caseId] })

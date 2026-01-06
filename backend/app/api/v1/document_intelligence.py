@@ -52,9 +52,11 @@ def get_doc_intelligence_service() -> MedicalDocumentIntelligence:
 
 @router.post("/analyze", response_model=dict)
 async def analyze_document(
-    case_id: UUID,
-    document_id: Optional[UUID] = None,
-    file: UploadFile = File(...),
+    case_id: Optional[str] = None,
+    document_id: Optional[str] = None,
+    # NOTE: analyze should NOT rely on a new upload; but we keep this optional
+    # for backward compatibility with existing clients.
+    file: Optional[UploadFile] = File(None),
     background_processing: bool = True,
     background_tasks: BackgroundTasks = BackgroundTasks(),
     current_user: dict = Depends(get_current_user),
@@ -80,21 +82,37 @@ async def analyze_document(
         Processing results or background job confirmation
     """
 
-    # Validate inputs
-    if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(
-            status_code=400,
-            detail="Only PDF files are supported for document intelligence",
-        )
+    # --- Normalize/validate params (avoid FastAPI 422) ---
+    logger.info(
+        "analyze_document request params: case_id=%s document_id=%s background_processing=%s",
+        case_id,
+        document_id,
+        background_processing,
+    )
+
+    if not case_id:
+        raise HTTPException(status_code=400, detail="case_id is required")
+    if not document_id:
+        raise HTTPException(status_code=400, detail="document_id is required")
+
+    try:
+        case_uuid = UUID(case_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="case_id must be a valid UUID")
+
+    try:
+        document_uuid = UUID(document_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="document_id must be a valid UUID")
 
     # Verify user has access to case
     try:
         case_service = CaseService()
-        case = await case_service.get_case(case_id, UUID(current_user["id"]))
+        case = await case_service.get_case(case_uuid, UUID(current_user["id"]))
         if not case:
             raise HTTPException(
                 status_code=404,
-                detail=f"Case {case_id} not found or access denied",
+                detail=f"Case {case_uuid} not found or access denied",
             )
     except Exception as e:
         logger.error(f"Case verification failed: {e}")
@@ -103,60 +121,35 @@ async def analyze_document(
             detail="Failed to verify case access",
         )
 
-    # Determine/verify document
+    # --- Fetch document row and verify case linkage ---
     supabase = get_supabase_admin()
-    if document_id is None:
-        # Frontend currently calls this endpoint without document_id.
-        # Try to infer it by matching filename within the case.
-        try:
-            matches = (
-                supabase.table("documents")
-                .select("id, filename")
-                .eq("case_id", str(case_id))
-                .eq("filename", file.filename)
-                .order("created_at", desc=True)
-                .limit(2)
-                .execute()
-            )
-        except Exception as e:
-            logger.error(f"Failed to search for document by filename: {e}")
-            raise HTTPException(status_code=500, detail="Failed to infer document_id")
-
-        if not matches.data:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "document_id is required unless the document already exists in the case with the same filename. "
-                    "Upload the document first (so it exists in the documents table), or call with document_id."
-                ),
-            )
-
-        if len(matches.data) > 1:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "Multiple documents in this case match the uploaded filename. "
-                    "Please call with an explicit document_id."
-                ),
-            )
-
-        document_id = UUID(matches.data[0]["id"])
-
-    # Now verify the (possibly inferred) document belongs to the case
     try:
         doc_result = (
             supabase.table("documents")
             .select("*")
-            .eq("id", str(document_id))
-            .eq("case_id", str(case_id))
+            .eq("id", str(document_uuid))
             .single()
             .execute()
         )
 
         if not doc_result.data:
+            raise HTTPException(status_code=404, detail=f"Document {document_uuid} not found")
+
+        document_row = doc_result.data
+        if str(document_row.get("case_id")) != str(case_uuid):
             raise HTTPException(
-                status_code=404,
-                detail=f"Document {document_id} not found in case {case_id}",
+                status_code=409,
+                detail=(
+                    f"document_id {document_uuid} does not belong to case_id {case_uuid}. "
+                    f"document.case_id={document_row.get('case_id')}"
+                ),
+            )
+
+        storage_path = document_row.get("storage_path")
+        if not storage_path:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Document {document_uuid} is missing storage_path",
             )
 
     except HTTPException:
@@ -165,22 +158,79 @@ async def analyze_document(
         logger.error(f"Document verification failed: {e}")
         raise HTTPException(status_code=500, detail="Failed to verify document")
 
+    # --- Download the already-uploaded file from storage using service role ---
+    # (do not rely on a new upload in this analyze endpoint)
+    try:
+        # storage_path is the object key inside the `documents` bucket (NOT prefixed with bucket name)
+        file_bytes = supabase.storage.from_("documents").download(storage_path)
+        if not file_bytes:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Storage object not found: bucket=documents object_key={storage_path}",
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        # Normalize common "not found" / permission errors to clearer codes
+        msg = str(e)
+        if "404" in msg or "Not Found" in msg:
+            raise HTTPException(status_code=404, detail=f"Storage object not found: bucket=documents object_key={storage_path}")
+        if "403" in msg or "Forbidden" in msg:
+            raise HTTPException(status_code=403, detail=f"Storage download forbidden (service role). bucket=documents object_key={storage_path}")
+        raise HTTPException(status_code=500, detail=f"Storage download failed: {msg}")
+
+    # Persist temp file and pass to Gemini pipeline
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+        tmp_file.write(file_bytes)
+        tmp_file_path = tmp_file.name
+
     # Process based on background preference
-    if background_processing:
-        return await _start_background_analysis(
-            case_id=case_id,
-            document_id=document_id,
-            file=file,
-            current_user=current_user,
-            background_tasks=background_tasks,
+    try:
+        if background_processing:
+            # Update status to processing
+            (
+                supabase.table("documents")
+                .update({"ocr_status": "processing", "updated_at": datetime.utcnow().isoformat()})
+                .eq("id", str(document_uuid))
+                .execute()
+            )
+
+            background_tasks.add_task(
+                _process_document_with_intelligence,
+                pdf_path=tmp_file_path,
+                case_id=case_uuid,
+                document_id=document_uuid,
+                user_id=UUID(current_user["id"]),
+            )
+
+            return {
+                "message": "Document analysis started in background",
+                "document_id": str(document_uuid),
+                "case_id": str(case_uuid),
+                "status": "processing",
+                "storage_path": storage_path,
+            }
+
+        # Immediate
+        result = await service.analyze_document(
+            pdf_path=tmp_file_path,
+            case_id=case_uuid,
+            document_id=document_uuid,
         )
-    else:
-        return await _immediate_analysis(
-            case_id=case_id,
-            document_id=document_id,
-            file=file,
-            service=service,
-        )
+        return {
+            "message": "Document analysis completed",
+            "document_id": str(document_uuid),
+            "case_id": str(case_uuid),
+            "status": "completed",
+            "storage_path": storage_path,
+            "results": asdict(result),
+        }
+    finally:
+        # cleanup temp file
+        try:
+            os.unlink(tmp_file_path)
+        except Exception:
+            pass
 
 
 @router.get("/{document_id}/status")

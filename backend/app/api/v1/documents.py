@@ -4,8 +4,10 @@ Complete Supabase Storage integration + background processing
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, BackgroundTasks
+from pydantic import BaseModel
+from pathlib import PurePosixPath
 from typing import List, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 import os
 import logging
 from datetime import datetime
@@ -19,6 +21,218 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/documents", tags=["documents"])
+
+
+class RegisterExistingItem(BaseModel):
+    storage_path: str
+    filename: Optional[str] = None
+    document_type: Optional[str] = None
+
+
+class RegisterExistingRequest(BaseModel):
+    case_id: str
+    items: Optional[List[RegisterExistingItem]] = None
+    # Allow single-item payloads
+    storage_path: Optional[str] = None
+    filename: Optional[str] = None
+    document_type: Optional[str] = None
+
+
+class RegisterExistingResult(BaseModel):
+    document_id: Optional[str] = None
+    storage_path: str
+    filename: str
+    status: str  # registered | already_registered | not_found | invalid
+
+
+class RegisterExistingResponse(BaseModel):
+    case_id: str
+    results: List[RegisterExistingResult]
+
+
+def _sanitize_storage_path(p: str) -> str:
+    p = (p or "").strip()
+    if not p:
+        return ""
+    # Disallow path traversal
+    if ".." in PurePosixPath(p).parts:
+        return ""
+    return p
+
+
+def _infer_filename(storage_path: str, provided_filename: Optional[str]) -> str:
+    if provided_filename and provided_filename.strip():
+        return provided_filename.strip()
+    return PurePosixPath(storage_path).name
+
+
+def _is_pdf_filename(filename: str) -> bool:
+    return filename.lower().endswith(".pdf")
+
+
+def _storage_object_exists(supabase_admin, bucket: str, object_key: str) -> bool:
+    # Supabase storage list() requires a prefix (folder). Use dirname.
+    path = PurePosixPath(object_key)
+    prefix = str(path.parent)
+    if prefix == ".":
+        prefix = ""
+    name = path.name
+
+    listed = supabase_admin.storage.from_(bucket).list(prefix)
+    # Python client returns list[dict] typically.
+    for obj in listed or []:
+        if obj.get("name") == name:
+            return True
+    return False
+
+
+@router.post("/register-existing", response_model=RegisterExistingResponse)
+async def register_existing_storage_objects(
+    payload: RegisterExistingRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Register already-uploaded storage objects into public.documents.
+
+    storage_path MUST be the object key inside bucket `documents` (no bucket prefix).
+    """
+
+    # Validate case_id (avoid 422)
+    if not payload.case_id:
+        raise HTTPException(status_code=400, detail="case_id is required")
+    try:
+        case_uuid = UUID(payload.case_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="case_id must be a valid UUID")
+
+    # Normalize to items
+    items: List[RegisterExistingItem] = []
+    if payload.items:
+        items = payload.items
+    elif payload.storage_path:
+        items = [
+            RegisterExistingItem(
+                storage_path=payload.storage_path,
+                filename=payload.filename,
+                document_type=payload.document_type,
+            )
+        ]
+    else:
+        raise HTTPException(status_code=400, detail="items or storage_path is required")
+
+    supabase = get_supabase_admin()  # service role
+
+    # Verify user has access to case
+    case_service = CaseService()
+    case = await case_service.get_case(case_uuid, UUID(current_user["id"]))
+    if not case:
+        raise HTTPException(status_code=403, detail=f"Access denied for case_id {case_uuid}")
+
+    results: List[RegisterExistingResult] = []
+
+    for item in items:
+        object_key = _sanitize_storage_path(item.storage_path)
+        filename = _infer_filename(item.storage_path, item.filename)
+
+        if not object_key or not filename or not _is_pdf_filename(filename):
+            results.append(
+                RegisterExistingResult(
+                    document_id=None,
+                    storage_path=item.storage_path,
+                    filename=filename or (item.filename or ""),
+                    status="invalid",
+                )
+            )
+            continue
+
+        # Verify object exists in Storage
+        try:
+            exists = _storage_object_exists(supabase, "documents", object_key)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Storage list failed: {str(e)}")
+
+        if not exists:
+            results.append(
+                RegisterExistingResult(
+                    document_id=None,
+                    storage_path=object_key,
+                    filename=filename,
+                    status="not_found",
+                )
+            )
+            continue
+
+        # Idempotent insert: unique on (case_id, storage_path)
+        try:
+            existing = (
+                supabase.table("documents")
+                .select("id")
+                .eq("case_id", str(case_uuid))
+                .eq("storage_path", object_key)
+                .limit(1)
+                .execute()
+            )
+            if existing.data:
+                results.append(
+                    RegisterExistingResult(
+                        document_id=existing.data[0]["id"],
+                        storage_path=object_key,
+                        filename=filename,
+                        status="already_registered",
+                    )
+                )
+                continue
+
+            doc_data = {
+                "case_id": str(case_uuid),
+                "filename": filename,
+                "storage_path": object_key,
+                "document_type": item.document_type,
+                "created_by": str(UUID(current_user["id"])),
+                "ocr_status": "pending",
+                "intelligence_result": {},
+            }
+
+            inserted = supabase.table("documents").insert(doc_data).execute()
+            if not inserted.data:
+                raise HTTPException(status_code=500, detail="Failed to insert documents row")
+
+            results.append(
+                RegisterExistingResult(
+                    document_id=inserted.data[0]["id"],
+                    storage_path=object_key,
+                    filename=filename,
+                    status="registered",
+                )
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            # If unique index exists, we might race; fallback to fetch.
+            msg = str(e)
+            try:
+                existing2 = (
+                    supabase.table("documents")
+                    .select("id")
+                    .eq("case_id", str(case_uuid))
+                    .eq("storage_path", object_key)
+                    .limit(1)
+                    .execute()
+                )
+                if existing2.data:
+                    results.append(
+                        RegisterExistingResult(
+                            document_id=existing2.data[0]["id"],
+                            storage_path=object_key,
+                            filename=filename,
+                            status="already_registered",
+                        )
+                    )
+                    continue
+            except Exception:
+                pass
+            raise HTTPException(status_code=500, detail=f"Register failed for {object_key}: {msg}")
+
+    return RegisterExistingResponse(case_id=str(case_uuid), results=results)
 
 # Initialize services
 _doc_intelligence_service = None
@@ -39,8 +253,8 @@ def get_doc_intelligence_service() -> MedicalDocumentIntelligence:
 
 @router.post("", status_code=status.HTTP_201_CREATED)
 async def upload_document(
-    case_id: UUID,
     background_tasks: BackgroundTasks,
+    case_id: Optional[str] = None,
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user)
 ):
@@ -54,6 +268,16 @@ async def upload_document(
     - Document metadata with processing status
     """
     
+    # --- Normalize/validate params (avoid FastAPI 422) ---
+    logger.info("upload_document request params: case_id=%s filename=%s", case_id, getattr(file, "filename", None))
+
+    if not case_id:
+        raise HTTPException(status_code=400, detail="case_id is required")
+    try:
+        case_uuid = UUID(case_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="case_id must be a valid UUID")
+
     # Validate file
     if not file.filename.lower().endswith('.pdf'):
         raise HTTPException(
@@ -77,16 +301,16 @@ async def upload_document(
     try:
         # 1. Verify case exists and user has access
         case_service = CaseService()
-        case = await case_service.get_case(case_id, UUID(current_user["id"]))
+        case = await case_service.get_case(case_uuid, UUID(current_user["id"]))
         if not case:
             raise HTTPException(
                 status_code=404,
-                detail=f"Case {case_id} not found or access denied"
+                detail=f"Case {case_uuid} not found or access denied"
             )
         
         # 2. Generate storage path
-        document_id = UUID(str(UUID()).__str__())  # Generate new document ID
-        storage_path = f"cases/{case_id}/{document_id}/{file.filename}"
+        document_id = uuid4()
+        storage_path = f"cases/{case_uuid}/{document_id}/{file.filename}"
         
         logger.info(f"Uploading document: {file.filename} to {storage_path}")
         
@@ -114,7 +338,7 @@ async def upload_document(
         # 4. Register document in database
         doc_data = {
             "id": str(document_id),
-            "case_id": str(case_id),
+            "case_id": str(case_uuid),
             "filename": file.filename,
             "storage_path": storage_path,
             "document_type": "medical_record",  # Default type
@@ -143,7 +367,7 @@ async def upload_document(
         background_tasks.add_task(
             process_document_background,
             document_id=document_id,
-            case_id=case_id,
+            case_id=case_uuid,
             storage_path=storage_path,
             user_id=UUID(current_user["id"])
         )
@@ -153,7 +377,8 @@ async def upload_document(
         return {
             **document,
             "message": "Document uploaded successfully. Processing started in background.",
-            "processing_status": "pending"
+            "processing_status": "pending",
+            "storage_path": storage_path,
         }
         
     except HTTPException:

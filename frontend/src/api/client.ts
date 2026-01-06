@@ -19,7 +19,8 @@ class ApiClient {
     })
 
     if (!response.ok) {
-      throw new Error(`API Error: ${response.statusText}`)
+      const body = await response.text().catch(() => '')
+      throw new Error(`API ${response.status}: ${response.statusText}${body ? ` - ${body}` : ''}`)
     }
 
     return response.json()
@@ -34,7 +35,8 @@ class ApiClient {
     })
 
     if (!response.ok) {
-      throw new Error(`API Error: ${response.statusText}`)
+      const body = await response.text().catch(() => '')
+      throw new Error(`API ${response.status}: ${response.statusText}${body ? ` - ${body}` : ''}`)
     }
 
     return response.json()
@@ -48,7 +50,8 @@ class ApiClient {
     })
 
     if (!response.ok) {
-      throw new Error(`API Error: ${response.statusText}`)
+      const body = await response.text().catch(() => '')
+      throw new Error(`API ${response.status}: ${response.statusText}${body ? ` - ${body}` : ''}`)
     }
 
     return response.json()
@@ -61,7 +64,8 @@ class ApiClient {
     })
 
     if (!response.ok) {
-      throw new Error(`API Error: ${response.statusText}`)
+      const body = await response.text().catch(() => '')
+      throw new Error(`API ${response.status}: ${response.statusText}${body ? ` - ${body}` : ''}`)
     }
   }
 }
