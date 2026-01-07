@@ -1,4 +1,5 @@
 import { useParams, Link } from "react-router-dom"
+import { useState } from "react"
 import { useCase, useUpdateCase } from "@/hooks/useCases"
 import { Button } from "@/components/ui/button"
 import { CaseStatusBadge } from "@/components/cases/CaseStatusBadge"
@@ -29,6 +30,14 @@ export default function CaseDetailPage() {
   const { mutate: updateCase } = useUpdateCase(id!)
   const { data: timeline } = useCaseTimeline(id!)
   const { data: reports } = useReports({}, "recent") // Filter for current case ideally
+  
+  const [activeTab, setActiveTab] = useState("overview")
+  const [selectedDocumentUrl, setSelectedDocumentUrl] = useState<string | null>(null)
+
+  const handleViewDocument = (url: string) => {
+      setSelectedDocumentUrl(url)
+      setActiveTab("document_viewer")
+  }
 
   if (isLoading) return <div className="p-8 animate-pulse text-center">Loading case details...</div>
   if (!caseData) return <div className="p-8 text-center">Case not found.</div>
@@ -82,8 +91,8 @@ export default function CaseDetailPage() {
         </div>
       </div>
 
-      <Tabs defaultValue="overview" className="w-full">
-        <TabsList className="grid grid-cols-2 md:grid-cols-5 w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="grid grid-cols-2 md:grid-cols-6 w-full">
           <TabsTrigger value="overview">
             <FileText className="h-4 w-4 mr-2 hidden md:block" />
             Overview
@@ -91,6 +100,10 @@ export default function CaseDetailPage() {
           <TabsTrigger value="documents">
             <FileText className="h-4 w-4 mr-2 hidden md:block" />
             Documents
+          </TabsTrigger>
+          <TabsTrigger value="document_viewer" disabled={!selectedDocumentUrl}>
+            <FileText className="h-4 w-4 mr-2 hidden md:block" />
+            Document Viewer
           </TabsTrigger>
           <TabsTrigger value="timeline">
             <History className="h-4 w-4 mr-2 hidden md:block" />
@@ -183,10 +196,34 @@ export default function CaseDetailPage() {
               <CardTitle>Document Management</CardTitle>
             </CardHeader>
             <CardContent>
-              <DocumentList caseId={id!} />
+              <DocumentList caseId={id!} onViewDocument={handleViewDocument} />
               <Button className="mt-4" asChild>
                 <Link to="/upload">Upload New Document</Link>
               </Button>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="document_viewer">
+          <Card className="h-[800px] flex flex-col">
+            <CardHeader>
+              <CardTitle>Document Viewer</CardTitle>
+              <CardDescription>
+                  {selectedDocumentUrl ? "Viewing selected document" : "No document selected"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="flex-1 p-0 overflow-hidden">
+                {selectedDocumentUrl ? (
+                    <iframe 
+                        src={selectedDocumentUrl} 
+                        className="w-full h-full border-0" 
+                        title="Document Viewer"
+                    />
+                ) : (
+                    <div className="flex items-center justify-center h-full text-muted-foreground">
+                        Select a document from the Documents tab to view.
+                    </div>
+                )}
             </CardContent>
           </Card>
         </TabsContent>

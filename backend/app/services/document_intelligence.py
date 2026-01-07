@@ -139,42 +139,61 @@ class MedicalDocumentIntelligence:
         start_time = datetime.now()
         logger.info(f"Starting Gemini 2.0 analysis: {pdf_path}")
         
-        # 1. Segment PDF for large files
-        chunks = self._segment_pdf(pdf_path)
-        logger.info(f"Split document into {len(chunks)} chunks")
-        
-        # 2. Parallel Extraction with Flash (Multimodal)
-        tasks = [self._process_chunk_with_flash(chunk, i) for i, chunk in enumerate(chunks)]
-        chunk_results = await asyncio.gather(*tasks)
-        
-        # 3. Holistic Synthesis with Pro
-        final_data = await self._synthesize_results_with_pro(
-            chunk_results, 
-            document_type_hint
-        )
-        
-        processing_time = (datetime.now() - start_time).total_seconds()
-        
-        # Build Result Object
-        result = MedicalDocumentIntelligenceResult(
-            document_type=final_data.get("document_type", "Comprehensive Medical Record"),
-            ocr_text="Content extracted via multimodal analysis (refer to sections)",
-            ocr_confidence=final_data.get("quality_score", 0.9),
-            sections=[DocumentSection(**s) for s in final_data.get("sections", [])],
-            tables=[Table(**t) for t in final_data.get("tables", [])],
-            medical_entities=[MedicalEntity(**e) for e in final_data.get("medical_entities", [])],
-            clinical_dates=[ClinicalDate(**d) for d in final_data.get("clinical_dates", [])],
-            page_count=len(chunks) * self.chunk_size, # Estimates
-            processing_time=processing_time,
-            quality_score=final_data.get("quality_score", 0.9),
-            inconsistencies=final_data.get("inconsistencies", [])
-        )
-        
-        # 4. Auto-Persist findings
-        await self._persist_results(case_id, document_id, result)
+        try:
+            # 1. Segment PDF for large files
+            chunks = self._segment_pdf(pdf_path)
+            logger.info(f"Split document into {len(chunks)} chunks")
             
-        logger.info(f"Analysis complete in {processing_time:.2f}s")
-        return result
+            # 2. Parallel Extraction with Flash (Multimodal)
+            tasks = [self._process_chunk_with_flash(chunk, i) for i, chunk in enumerate(chunks)]
+            chunk_results = await asyncio.gather(*tasks)
+            
+            # 3. Holistic Synthesis with Pro
+            final_data = await self._synthesize_results_with_pro(
+                chunk_results, 
+                document_type_hint
+            )
+            
+            processing_time = (datetime.now() - start_time).total_seconds()
+            
+            # Build Result Object
+            result = MedicalDocumentIntelligenceResult(
+                document_type=final_data.get("document_type", "Comprehensive Medical Record"),
+                ocr_text="Content extracted via multimodal analysis (refer to sections)",
+                ocr_confidence=final_data.get("quality_score", 0.9),
+                sections=[DocumentSection(**s) for s in final_data.get("sections", [])],
+                tables=[Table(**t) for t in final_data.get("tables", [])],
+                medical_entities=[MedicalEntity(**e) for e in final_data.get("medical_entities", [])],
+                clinical_dates=[ClinicalDate(**d) for d in final_data.get("clinical_dates", [])],
+                page_count=len(chunks) * self.chunk_size, # Estimates
+                processing_time=processing_time,
+                quality_score=final_data.get("quality_score", 0.9),
+                inconsistencies=final_data.get("inconsistencies", [])
+            )
+            
+            # 4. Auto-Persist findings
+            await self._persist_results(case_id, document_id, result)
+                
+            logger.info(f"Analysis complete in {processing_time:.2f}s")
+            return result
+            
+        except Exception as e:
+            import traceback
+            error_details = f"{str(e)}\n{traceback.format_exc()}"
+            logger.error(f"Analysis failed for document {document_id}: {error_details}")
+            
+            # Update status to failed
+            try:
+                self.supabase.table("documents").update({
+                    "ocr_status": "failed",
+                    "intelligence_result": {"error": str(e), "details": error_details},
+                    "updated_at": datetime.utcnow().isoformat()
+                }).eq("id", str(document_id)).execute()
+            except Exception as update_error:
+                logger.error(f"Failed to update document status to failed: {update_error}")
+            
+            # Re-raise with detail so API can return 500 with message
+            raise Exception(f"Analysis failed: {str(e)}")
 
 
     def _segment_pdf(self, pdf_path: str) -> List[bytes]:
@@ -258,23 +277,70 @@ class MedicalDocumentIntelligence:
         """Writes findings to specialized medical intelligence tables"""
         logger.info(f"Persisting findings for Case {case_id}, Document {document_id}")
         
-        # 1. Update Document Metadata (Classification & Quality)
-        # Dynamic Schema Mapping for Documents table
-        doc_update = {"ocr_status": "completed"}
+        # 1. Construct Intelligence Result JSON
+        # Requirement: extracted_text_stats, entities, timeline, normalization_summary, quality_score
         
-        # Try to include advanced metadata if columns exist
+        # Categorize entities
+        entities_map = {
+            "people": [], "facilities": [], "dates": [], "meds": [], "diagnoses": [], "procedures": []
+        }
+        
+        for e in result.medical_entities:
+            cat = e.category.lower()
+            if "diagnos" in cat: entities_map["diagnoses"].append(e.text)
+            elif "med" in cat: entities_map["meds"].append(e.text)
+            elif "proc" in cat or "surg" in cat: entities_map["procedures"].append(e.text)
+            elif "person" in cat or "doctor" in cat or "provid" in cat: entities_map["people"].append(e.text)
+            elif "facil" in cat or "hosp" in cat or "clin" in cat: entities_map["facilities"].append(e.text)
+            
+        # Clinical dates to timeline
+        timeline_events = [
+            {
+                "date": d.date,
+                "event": d.date_type,
+                "source_doc": str(document_id),
+                "page": d.page_number
+            }
+            for d in result.clinical_dates
+        ]
+        
+        # Summary from sections (simple concatenation of titles for now, or first section content)
+        summary = "No summary generated."
+        if result.sections:
+            summary = "\n".join([f"**{s.title}**: {s.content[:200]}..." for s in result.sections])
+
+        intelligence_json = {
+            "extracted_text_stats": {
+                "pages": result.page_count,
+                "chars": len(result.ocr_text) if result.ocr_text else 0,
+                "method": self.flash_model
+            },
+            "entities": entities_map,
+            "timeline": timeline_events,
+            "normalization_summary": summary,
+            "quality_score": result.quality_score,
+            # Keep original detailed results too
+            "raw_sections": [asdict(s) for s in result.sections],
+            "raw_tables": [asdict(t) for t in result.tables]
+        }
+        
+        # 2. Update Document Metadata (Classification & Quality)
+        doc_update = {
+            "ocr_status": "completed",
+            "document_type": result.document_type,
+            "quality_score": result.quality_score,
+            "intelligence_result": intelligence_json,
+            "updated_at": datetime.utcnow().isoformat()
+        }
+        
         try:
-            doc_update.update({
-                "document_type": result.document_type,
-                "quality_score": result.quality_score,
-                "intelligence_result": asdict(result)
-            })
             self.supabase.table("documents").update(doc_update).eq("id", str(document_id)).execute()
         except Exception as e:
-            logger.warning(f"Metadata persistence restricted: {e}. Falling back to basic status.")
+            logger.error(f"Failed to update document metadata: {e}")
+            # Try minimal update if full payload fails
             self.supabase.table("documents").update({"ocr_status": "completed"}).eq("id", str(document_id)).execute()
 
-        # 2. Persist Medical Entities
+        # 3. Persist Medical Entities
         if result.medical_entities:
             entities_data = [
                 {

@@ -15,6 +15,7 @@ from app.models.report import (
 )
 from app.services.report_service import ReportService
 from app.api.dependencies import get_current_user
+from app.core.database import get_supabase_admin
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -237,6 +238,29 @@ async def generate_pre_exam_report(
     - Key findings
     - Examination preparation guide
     """
+    # Check for pending documents
+    supabase = get_supabase_admin()
+    
+    # We check for any document that is not completed (pending, processing, failed)
+    # If failed, we arguably shouldn't block, but requirement says:
+    # "If any docs still pending/processing, report endpoint should return 409"
+    # It doesn't explicitly say failed blocks, but usually you want to fix failures.
+    # However, blocking on 'failed' might prevent report generation forever if one doc is bad.
+    # Let's interpret strict requirement: "pending/processing".
+    
+    pending_docs = supabase.table("documents")\
+        .select("id, filename, ocr_status")\
+        .eq("case_id", str(case_id))\
+        .in_("ocr_status", ["pending", "processing"])\
+        .execute()
+        
+    if pending_docs.data:
+        unfinished = [f"{d['filename']} ({d['ocr_status']})" for d in pending_docs.data]
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot generate report. Unfinished documents: {', '.join(unfinished)}"
+        )
+
     service = ReportService()
     
     try:
