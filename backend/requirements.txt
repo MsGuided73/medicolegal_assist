@@ -7,28 +7,33 @@ python-multipart==0.0.6
 supabase==2.0.3
 postgrest==0.13.0
 
-# Document Intelligence
+# Enhanced Document Intelligence (Cost-Optimized Gemini 2.0 Pipeline)
 google-genai==0.2.1
 anthropic==0.7.0
 
-# PDF Processing
+# Advanced PDF Processing & Image Optimization
 PyPDF2==3.0.1
 pdfplumber==0.10.3
 pdf2image==1.16.3
 Pillow==10.1.0
+opencv-python==4.8.1.78
 
-# Environment
+# Environment & Configuration
 python-dotenv==1.0.0
 pydantic==2.5.0
 pydantic-settings==2.1.0
 
-# Authentication
+# Authentication & Security
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
 
-# HTTP
+# HTTP & Async
 httpx==0.25.1
 aiohttp==3.9.0
+
+# Background Processing
+celery[redis]==5.3.4
+redis==5.0.1
 
 # Testing
 pytest==7.4.3
